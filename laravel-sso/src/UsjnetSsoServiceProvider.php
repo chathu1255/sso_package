@@ -1,0 +1,51 @@
+<?php
+
+namespace Usjnet\Sso;
+
+use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\ServiceProvider;
+use Usjnet\Sso\Console\DoctorUsjnetSsoCommand;
+use Usjnet\Sso\Console\InstallUsjnetSsoCommand;
+use Usjnet\Sso\Http\Middleware\EnsureSsoWebAuthenticated;
+use Usjnet\Sso\Http\Middleware\ValidateSsoToken;
+
+class UsjnetSsoServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__.'/../config/usjnet-sso.php', 'usjnet-sso');
+
+        $this->app->singleton(SsoAuthService::class);
+    }
+
+    public function boot(): void
+    {
+        /** @var Router $router */
+        $router = $this->app['router'];
+        $router->aliasMiddleware('sso.token', ValidateSsoToken::class);
+        $router->aliasMiddleware('sso.web', EnsureSsoWebAuthenticated::class);
+
+        Route::middleware('web')->group(function (): void {
+            require __DIR__.'/../routes/sso-web.php';
+        });
+
+        $apiMiddleware = config('usjnet-sso.api_route_middleware', ['api']);
+        $apiPrefix = (string) config('usjnet-sso.api_route_prefix', 'api');
+
+        Route::middleware($apiMiddleware)->prefix($apiPrefix)->group(function (): void {
+            require __DIR__.'/../routes/sso-api.php';
+        });
+
+        $this->publishes([
+            __DIR__.'/../config/usjnet-sso.php' => config_path('usjnet-sso.php'),
+        ], 'usjnet-sso-config');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                InstallUsjnetSsoCommand::class,
+                DoctorUsjnetSsoCommand::class,
+            ]);
+        }
+    }
+}
