@@ -3,9 +3,15 @@
 namespace Usjnet\Sso\Support;
 
 use Illuminate\Auth\GenericUser;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Throwable;
+use Usjnet\Sso\Exceptions\NoLocalUserForSsoException;
 
 trait AuthenticatesSsoRequest
 {
@@ -15,19 +21,144 @@ trait AuthenticatesSsoRequest
      *
      * @param  array<string, mixed>  $ssoUser
      */
-    protected function authenticateSsoRequest(Request $request, array $ssoUser): GenericUser
+    protected function authenticateSsoRequest(Request $request, array $ssoUser): Authenticatable
     {
-        $attributes = $this->normalizeSsoUserForAuth($ssoUser);
-        $authUser = new GenericUser($attributes);
-
         $request->attributes->set('sso_user', $ssoUser);
-        $request->setUserResolver(static function ($guard = null) use ($authUser): GenericUser {
+
+        $authUser = $this->resolveAuthenticatableFromSso($ssoUser);
+
+        $request->setUserResolver(static function ($guard = null) use ($authUser): Authenticatable {
             return $authUser;
         });
 
         $this->primeAuthGuardsWithUser($authUser);
 
         return $authUser;
+    }
+
+    /**
+     * @param  array<string, mixed>  $ssoUser
+     */
+    protected function resolveAuthenticatableFromSso(array $ssoUser): Authenticatable
+    {
+        $mode = strtolower(trim((string) config('usjnet-sso.auth_user_mode', 'sso')));
+
+        if ($mode === 'system') {
+            return $this->resolveSystemDatabaseUser($ssoUser);
+        }
+
+        $attributes = $this->normalizeSsoUserForAuth($ssoUser);
+
+        return new GenericUser($attributes);
+    }
+
+    /**
+     * @param  array<string, mixed>  $ssoUser
+     */
+    protected function resolveSystemDatabaseUser(array $ssoUser): Authenticatable
+    {
+        $modelClass = (string) config('usjnet-sso.system_user_model', 'App\\Models\\User');
+
+        if (! class_exists($modelClass)) {
+            throw new InvalidArgumentException("usjnet-sso.system_user_model class does not exist: {$modelClass}");
+        }
+
+        if (! is_subclass_of($modelClass, Model::class)) {
+            throw new InvalidArgumentException("usjnet-sso.system_user_model must extend Eloquent Model: {$modelClass}");
+        }
+
+        if (! is_a($modelClass, Authenticatable::class, true)) {
+            throw new InvalidArgumentException("usjnet-sso.system_user_model must implement Authenticatable: {$modelClass}");
+        }
+
+        $emailKey = (string) config('usjnet-sso.system_user_email_attribute', 'email');
+        $email = trim((string) data_get($ssoUser, $emailKey, ''));
+
+        if ($email === '') {
+            throw NoLocalUserForSsoException::missingEmail();
+        }
+
+        $column = (string) config('usjnet-sso.system_user_email_column', 'email');
+        if (! preg_match('/^[a-zA-Z0-9_]+$/', $column)) {
+            throw new InvalidArgumentException('usjnet-sso.system_user_email_column must be alphanumeric/underscore only.');
+        }
+
+        $ci = (bool) config('usjnet-sso.system_user_match_case_insensitive', true);
+
+        /** @var Model $modelInstance */
+        $modelInstance = new $modelClass;
+        $query = $modelClass::query();
+
+        if ($ci) {
+            $grammar = $query->getGrammar();
+            $qualified = $modelInstance->qualifyColumn($column);
+            $wrapped = $grammar->wrap($qualified);
+            $query->whereRaw('LOWER('.$wrapped.') = ?', [mb_strtolower($email)]);
+        } else {
+            $query->where($column, $email);
+        }
+
+        $dbUser = $query->first();
+
+        if ($dbUser instanceof Authenticatable) {
+            return $dbUser;
+        }
+
+        if (! (bool) config('usjnet-sso.create_system_user_if_missing', false)) {
+            throw NoLocalUserForSsoException::noAccount();
+        }
+
+        return $this->createSystemUserFromSso($modelClass, $email, $ssoUser, $column);
+    }
+
+    /**
+     * @param  class-string<Model&Authenticatable>  $modelClass
+     * @param  array<string, mixed>  $ssoUser
+     */
+    protected function createSystemUserFromSso(string $modelClass, string $email, array $ssoUser, string $emailColumn): Authenticatable
+    {
+        $name = $this->guessSystemUserDisplayName($ssoUser);
+        if ($name === '') {
+            $name = $email;
+        }
+
+        $password = Hash::make(Str::random(64));
+
+        $data = array_filter([
+            $emailColumn => $email,
+            'name' => $name,
+            'password' => $password,
+        ], static fn ($v) => $v !== null && $v !== '');
+
+        /** @var Model&Authenticatable $user */
+        $user = new $modelClass;
+        $user->forceFill($data);
+        $user->save();
+
+        return $user;
+    }
+
+    /**
+     * @param  array<string, mixed>  $ssoUser
+     */
+    protected function guessSystemUserDisplayName(array $ssoUser): string
+    {
+        $keys = config('usjnet-sso.system_user_name_attributes', ['name', 'username']);
+        if (! is_array($keys)) {
+            $keys = ['name', 'username'];
+        }
+
+        foreach ($keys as $key) {
+            if (! is_string($key) || $key === '') {
+                continue;
+            }
+            $v = data_get($ssoUser, $key);
+            if (is_string($v) && trim($v) !== '') {
+                return trim($v);
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -65,7 +196,7 @@ trait AuthenticatesSsoRequest
         return $user;
     }
 
-    protected function primeAuthGuardsWithUser(GenericUser $authUser): void
+    protected function primeAuthGuardsWithUser(Authenticatable $authUser): void
     {
         $defined = array_keys(config('auth.guards', []));
 

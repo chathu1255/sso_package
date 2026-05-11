@@ -103,6 +103,30 @@ Use **one hostname style** everywhere (`127.0.0.1` **or** `localhost`, not mixed
 
 Default scope is **`view-user`** if you do not change it.
 
+### Auth user mode (`sso` vs `system`)
+
+After the SSO access token is validated, Laravel’s `Auth::user()` can be wired in two ways (see `config/usjnet-sso.php`):
+
+| Mode | Behavior |
+|------|----------|
+| **`sso`** (default) | `Auth::user()` is an **`Illuminate\Auth\GenericUser`** built from the SSO `/api/user` JSON. |
+| **`system`** | `Auth::user()` is your **`users` table Eloquent model**, found by **email** (SSO JSON key defaults to `email`). No local row → **403** unless you enable auto-create. |
+
+**`.env` examples — system user (match `users.email` to SSO `email`):**
+
+```env
+USJNET_SSO_AUTH_USER_MODE=system
+USJNET_SSO_SYSTEM_USER_MODEL=App\Models\User
+USJNET_SSO_SYSTEM_USER_EMAIL_ATTRIBUTE=email
+USJNET_SSO_SYSTEM_USER_EMAIL_COLUMN=email
+USJNET_SSO_SYSTEM_USER_EMAIL_CI=true
+# Optional: auto-provision local users (random password; SSO-only sign-in)
+# USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING=true
+# USJNET_SSO_SYSTEM_USER_NAME_ATTRIBUTES=name,username
+```
+
+`request()->attributes->get('sso_user')` is **always** the raw SSO profile array (for auditing or merging fields), even in `system` mode.
+
 ---
 
 ## 4. Run setup
@@ -187,8 +211,8 @@ This helps enforce global logout behavior across connected apps when SSO token i
 After `sso.web` or `sso.token` middleware runs, all of these work:
 
 ```php
-$request->user();
-$request->attributes->get('sso_user'); // raw JSON from SSO /api/user
+$request->user();        // GenericUser (sso mode) or App\Models\User (system mode)
+$request->attributes->get('sso_user'); // always: raw array from SSO /api/user
 Auth::user();
 Auth::id();
 Auth::guard('api')->user(); // when "api" is in auth.php (default priming includes web, api, sanctum if defined)
@@ -288,7 +312,7 @@ Route::middleware(['sso.web', 'check.role'])->group(function (): void {
 
 Rule:
 
-- **Package** = authentication. After `sso.web` / `sso.token`, `Auth::user()` is set on the default guard and on **`web`**, **`api`**, and **`sanctum`** (if that guard exists). SSO JSON often omits `id`; the package maps `sub` / `user_id` / etc. into `id` for `GenericUser`. To target other guards only, set **`USJNET_SSO_AUTH_GUARDS`** in `.env` (comma-separated), e.g. `web,custom`.
+- **Package** = authentication. After `sso.web` / `sso.token`, `Auth::user()` is set on the default guard and on **`web`**, **`api`**, and **`sanctum`** (if that guard exists). With **`USJNET_SSO_AUTH_USER_MODE=sso`** (default), that user is a **`GenericUser`** from SSO JSON; with **`system`**, it is your **`User`** model matched by email. SSO JSON is always on **`request()->attributes->get('sso_user')`**. Override guards with **`USJNET_SSO_AUTH_GUARDS`** in `.env` (comma-separated), e.g. `web,custom`.
 - **App** = authorization / business rules
 
 ## 11. Avoid duplicate routes
@@ -304,7 +328,9 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | `invalid_state` | Same tab session; one redirect from SPA; `APP_URL` matches cookie domain |
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |
 | 401 on `/api/auth/me` | `Authorization: Bearer` or HttpOnly cookie; `withCredentials` on SPA |
+| Package not loading | `composer dump-autoload`; clear config cache |
 | 301/302 loop / “too many redirects” | Do not require an access cookie on OAuth routes: this package skips **`sso/spa/redirect`** and **`sso/spa/callback`** inside `sso.web`. If you customized paths, set **`web_sso_public_paths`** in `config/usjnet-sso.php`. Prefer attaching **`sso.web` only to protected route groups**, not the entire `web` stack. |
+| 403 `no_local_account` (system mode) | SSO email must match a row in `users` (or set `USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING=true` to auto-provision). |
 | Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
 | Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |
 

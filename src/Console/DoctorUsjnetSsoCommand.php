@@ -3,6 +3,7 @@
 namespace Usjnet\Sso\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Route;
 
 class DoctorUsjnetSsoCommand extends Command
@@ -40,6 +41,13 @@ class DoctorUsjnetSsoCommand extends Command
 
         $frontendHome = (string) config('usjnet-sso.frontend_home_url', '');
         $this->check('USJNET_SSO_FRONTEND_HOME_URL configured', $frontendHome !== '', $frontendHome);
+
+        $authMode = strtolower((string) config('usjnet-sso.auth_user_mode', 'sso'));
+        if ($authMode === 'system') {
+            $model = (string) config('usjnet-sso.system_user_model', '');
+            $modelOk = $model !== '' && class_exists($model) && is_a($model, Authenticatable::class, true);
+            $this->check('auth_user_mode=system: system_user_model exists and implements Authenticatable', $modelOk, $model !== '' ? $model : '(empty)');
+        }
 
         $this->check('Route exists: /sso/spa/redirect', $this->routePathExists('sso/spa/redirect'));
         $this->check('Route exists: /sso/spa/callback', $this->routePathExists('sso/spa/callback'));

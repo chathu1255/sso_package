@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
+use InvalidArgumentException;
+use Usjnet\Sso\Exceptions\NoLocalUserForSsoException;
 use Usjnet\Sso\SsoAuthService;
 use Usjnet\Sso\Support\AuthenticatesSsoRequest;
 use Usjnet\Sso\Support\HandlesSsoLogout;
@@ -36,12 +38,31 @@ class EnsureSsoWebAuthenticated
 
         try {
             $user = $this->ssoAuthService->validateAccessToken($token);
-            $this->authenticateSsoRequest($request, $user);
         } catch (Throwable) {
             $this->performSsoLogoutSafely($request, $this->ssoAuthService);
             $this->clearLocalSession($request);
             Auth::forgetGuards();
+
             return $this->clearAuthCookies($this->redirectToSso($request, true));
+        }
+
+        try {
+            $this->authenticateSsoRequest($request, $user);
+        } catch (NoLocalUserForSsoException $e) {
+            Auth::forgetGuards();
+            $home = rtrim((string) config('usjnet-sso.frontend_home_url', ''), '/');
+            if ($home === '') {
+                return response($e->getMessage(), 403);
+            }
+
+            return redirect()->away($home.'?'.http_build_query([
+                'login_error' => 'no_local_account',
+                'login_error_description' => $e->getMessage(),
+            ]));
+        } catch (InvalidArgumentException $e) {
+            Auth::forgetGuards();
+
+            return response($e->getMessage(), 500);
         }
 
         return $next($request);

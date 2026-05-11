@@ -63,12 +63,51 @@ return [
     ],
 
     /**
-     * Guards that receive the SSO GenericUser (so Auth::guard('api')->user() works, not only the default guard).
+     * Guards that receive the authenticated user after SSO validation (GenericUser or Eloquent User in system mode).
      * Comma-separated in env, e.g. "web,sanctum". Null = default guard from config/auth.php plus "web" and "api" if defined.
      */
     'auth_guards' => env('USJNET_SSO_AUTH_GUARDS')
         ? array_values(array_filter(array_map('trim', explode(',', (string) env('USJNET_SSO_AUTH_GUARDS')))))
         : null,
+
+    /**
+     * How Laravel auth is set after a valid SSO access token:
+     * - "sso": Illuminate\Auth\GenericUser from SSO /api/user JSON (default).
+     * - "system": Eloquent model from your users table matched by email (see system_user_* keys).
+     */
+    'auth_user_mode' => env('USJNET_SSO_AUTH_USER_MODE', 'sso'),
+
+    /** Fully-qualified Eloquent model when auth_user_mode is "system". */
+    'system_user_model' => env('USJNET_SSO_SYSTEM_USER_MODEL', 'App\\Models\\User'),
+
+    /** Dot-path on SSO JSON for the email used to find the local user (e.g. "email"). */
+    'system_user_email_attribute' => env('USJNET_SSO_SYSTEM_USER_EMAIL_ATTRIBUTE', 'email'),
+
+    /** Database column on system_user_model used for lookup (usually "email"). */
+    'system_user_email_column' => env('USJNET_SSO_SYSTEM_USER_EMAIL_COLUMN', 'email'),
+
+    /** Match local user with case-insensitive email (recommended). */
+    'system_user_match_case_insensitive' => filter_var(
+        env('USJNET_SSO_SYSTEM_USER_EMAIL_CI', true),
+        FILTER_VALIDATE_BOOL,
+        FILTER_NULL_ON_FAILURE
+    ) ?? true,
+
+    /** When true, a minimal local row is created if no user matches (name + random password). */
+    'create_system_user_if_missing' => filter_var(
+        env('USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING', false),
+        FILTER_VALIDATE_BOOL,
+        FILTER_NULL_ON_FAILURE
+    ) ?? false,
+
+    /**
+     * Comma-separated SSO JSON keys used for the local "name" field on auto-create (first non-empty wins).
+     * Example: name,username
+     */
+    'system_user_name_attributes' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('USJNET_SSO_SYSTEM_USER_NAME_ATTRIBUTES', 'name,username'))
+    ))),
 
     /** POST /api/auth/login — password grant to SSO. */
     'password_login_enabled' => env('USJNET_SSO_PASSWORD_LOGIN', true),
