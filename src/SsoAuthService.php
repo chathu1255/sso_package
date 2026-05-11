@@ -15,9 +15,9 @@ class SsoAuthService
         return $this->requestToken([
             'grant_type' => 'authorization_code',
             'code' => $code,
-            'redirect_uri' => $redirectUri ?? config('usjnet-sso.redirect_uri'),
-            'client_id' => config('usjnet-sso.client_id'),
-            'client_secret' => config('usjnet-sso.client_secret'),
+            'redirect_uri' => trim((string) ($redirectUri ?? config('usjnet-sso.redirect_uri'))),
+            'client_id' => trim((string) config('usjnet-sso.client_id')),
+            'client_secret' => trim((string) config('usjnet-sso.client_secret')),
         ]);
     }
 
@@ -28,8 +28,8 @@ class SsoAuthService
             'username' => $username,
             'password' => $password,
             'scope' => $scope,
-            'client_id' => config('usjnet-sso.client_id'),
-            'client_secret' => config('usjnet-sso.client_secret'),
+            'client_id' => trim((string) config('usjnet-sso.client_id')),
+            'client_secret' => trim((string) config('usjnet-sso.client_secret')),
         ]);
     }
 
@@ -39,8 +39,8 @@ class SsoAuthService
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
             'scope' => $scope,
-            'client_id' => config('usjnet-sso.client_id'),
-            'client_secret' => config('usjnet-sso.client_secret'),
+            'client_id' => trim((string) config('usjnet-sso.client_id')),
+            'client_secret' => trim((string) config('usjnet-sso.client_secret')),
         ]);
     }
 
@@ -99,8 +99,8 @@ class SsoAuthService
     public function authorizeUrl(string $state, ?string $redirectUri = null, bool $forceLogin = false): string
     {
         $query = [
-            'client_id' => config('usjnet-sso.client_id'),
-            'redirect_uri' => $redirectUri ?? config('usjnet-sso.redirect_uri'),
+            'client_id' => trim((string) config('usjnet-sso.client_id')),
+            'redirect_uri' => trim((string) ($redirectUri ?? config('usjnet-sso.redirect_uri'))),
             'response_type' => 'code',
             'scope' => config('usjnet-sso.scope', ''),
             'state' => $state,
@@ -118,10 +118,23 @@ class SsoAuthService
 
     protected function requestToken(array $payload): SsoToken
     {
+        if (isset($payload['client_id'])) {
+            $payload['client_id'] = trim((string) $payload['client_id']);
+        }
+        if (isset($payload['client_secret'])) {
+            $payload['client_secret'] = trim((string) $payload['client_secret']);
+        }
+
         $response = $this->client()->asForm()->post('/oauth/token', $payload);
 
         if ($response->failed()) {
-            throw new HttpException($response->status(), Arr::get($response->json(), 'message', 'Unable to authenticate against SSO.'));
+            $body = $response->json();
+            $body = is_array($body) ? $body : [];
+            $message = Arr::get($body, 'error_description')
+                ?: Arr::get($body, 'message')
+                ?: Arr::get($body, 'error')
+                ?: 'Unable to authenticate against SSO.';
+            throw new HttpException($response->status(), is_string($message) ? $message : 'Unable to authenticate against SSO.');
         }
 
         return SsoToken::fromArray($response->json() ?: []);

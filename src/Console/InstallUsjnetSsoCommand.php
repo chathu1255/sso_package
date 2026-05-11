@@ -9,7 +9,7 @@ class InstallUsjnetSsoCommand extends Command
 {
     protected $signature = 'usjnet-sso:install';
 
-    protected $description = 'Interactive install: publish config, ask project style, and write recommended SSO env keys';
+    protected $description = 'Interactive install: publish config, OAuth client, auth user mode (sso vs system), and .env';
 
     public function handle(): int
     {
@@ -30,6 +30,15 @@ class InstallUsjnetSsoCommand extends Command
         $clientId = (string) $this->ask('USJNET_SSO_CLIENT_ID', (string) config('usjnet-sso.client_id', ''));
         $clientSecret = (string) $this->secret('USJNET_SSO_CLIENT_SECRET (input hidden)');
 
+        $authMode = $this->choice(
+            'After SSO login, how should Laravel Auth::user() work?',
+            [
+                'sso' => 'SSO only — GenericUser built from SSO /api/user JSON (no local users table)',
+                'system' => 'System user — load App\\Models\\User (or your model) by email from SSO profile',
+            ],
+            'sso'
+        );
+
         $frontendHome = $style === 'single'
             ? $appUrl.'/home'
             : rtrim((string) $this->ask('USJNET_SSO_FRONTEND_HOME_URL', 'http://127.0.0.1:3000/home'), '/');
@@ -42,6 +51,15 @@ class InstallUsjnetSsoCommand extends Command
         $this->upsertEnv('USJNET_SSO_BASE_URL', $ssoBaseUrl);
         $this->upsertEnv('USJNET_SSO_CLIENT_ID', $clientId);
         $this->upsertEnv('USJNET_SSO_CLIENT_SECRET', $clientSecret);
+        $this->upsertEnv('USJNET_SSO_AUTH_USER_MODE', $authMode);
+
+        if ($authMode === 'system') {
+            $userModel = (string) $this->ask('USJNET_SSO_SYSTEM_USER_MODEL (Eloquent class)', (string) config('usjnet-sso.system_user_model', 'App\\Models\\User'));
+            $this->upsertEnv('USJNET_SSO_SYSTEM_USER_MODEL', $userModel);
+            $autoCreate = $this->confirm('Create a local user row automatically if email is not in the database?', false);
+            $this->upsertEnv('USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING', $autoCreate ? 'true' : 'false');
+        }
+
         $this->upsertEnv('USJNET_SSO_REDIRECT_URI', $redirectUri);
         $this->upsertEnv('USJNET_SSO_FRONTEND_HOME_URL', $frontendHome);
         $this->upsertEnv('CORS_ALLOWED_ORIGINS', $corsOrigins);
@@ -59,6 +77,7 @@ class InstallUsjnetSsoCommand extends Command
         $this->newLine();
         $this->info('Next steps (required):');
         $this->line('  1. Register OAuth redirect URI at SSO exactly as: '.$redirectUri);
+        $this->line('     If login shows token_exchange_failed / Client authentication failed: USJNET_SSO_CLIENT_ID and USJNET_SSO_CLIENT_SECRET must match a confidential OAuth client on the SSO server (no extra spaces in .env).');
         $this->line('  2. Exclude SSO cookies from encryption: Laravel 11+ in bootstrap/app.php (encryptCookies except); Laravel 9–10 in app/Http/Middleware/EncryptCookies::$except.');
         $this->line('  3. In config/cors.php set supports_credentials=true and allowed_origins includes: '.$corsOrigins.' (installer creates config/cors.php if missing).');
         $this->line('  4. Middleware alias sso.token is already registered by package.');

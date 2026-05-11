@@ -137,7 +137,7 @@ php artisan usjnet-sso:install
 php artisan usjnet-sso:doctor
 ```
 
-`usjnet-sso:install` asks project style and writes recommended `.env` values:
+`usjnet-sso:install` asks project style, **OAuth client credentials**, **Auth user mode** (`sso` vs `system` / local `User` by email), and writes recommended `.env` values:
 
 - **`separate`**: frontend and backend are separate apps/domains (asks SPA CORS origins).
 - **`single`**: frontend + backend in one Laravel app/domain (uses same-origin defaults).
@@ -325,6 +325,7 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 
 | Issue | Check |
 |-------|--------|
+| `token_exchange_failed` + **Client authentication failed** | OAuth **client_id** / **client_secret** do not match the SSO server (wrong secret, typo, or `.env` not reloaded). Re-copy the secret from the SSO admin UI; use `php artisan config:clear`. Client must be **confidential** if you send **client_secret**. **redirect_uri** in token request must exactly match the one used in `/oauth/authorize` and SSO registration. |
 | `invalid_state` | Same tab session; one redirect from SPA; `APP_URL` matches cookie domain |
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |
 | 401 on `/api/auth/me` | `Authorization: Bearer` or HttpOnly cookie; `withCredentials` on SPA |
