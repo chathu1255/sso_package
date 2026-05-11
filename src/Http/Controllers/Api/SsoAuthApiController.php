@@ -111,7 +111,7 @@ class SsoAuthApiController extends Controller
     public function bootstrap(BootstrapRequest $request): JsonResponse
     {
         $prefix = (string) config('usjnet-sso.bootstrap_cache_prefix', 'usjnet_sso_bootstrap:');
-        $id = $request->string('bootstrap')->toString();
+        $id = (string) $request->input('bootstrap', '');
         $data = Cache::pull($prefix.$id);
 
         if (! is_array($data) || empty($data['access_token'])) {
@@ -130,9 +130,9 @@ class SsoAuthApiController extends Controller
         }
 
         $token = $this->authService->requestPasswordToken(
-            $request->string('username')->toString(),
-            $request->string('password')->toString(),
-            $request->string('scope')->toString(),
+            (string) $request->input('username', ''),
+            (string) $request->input('password', ''),
+            (string) $request->input('scope', ''),
         );
 
         if (config('usjnet-sso.password_login_require_student_record', false)) {
@@ -143,7 +143,7 @@ class SsoAuthApiController extends Controller
             }
 
             $ssoUser = $this->authService->validateAccessToken($token->accessToken);
-            $loginId = strtolower(trim($request->string('username')->toString()));
+            $loginId = strtolower(trim((string) $request->input('username', '')));
             $email = strtolower(trim((string) data_get($ssoUser, 'email', '')));
 
             $studentExists = DB::table('student_details')
@@ -171,7 +171,7 @@ class SsoAuthApiController extends Controller
 
     public function exchangeCode(TokenExchangeRequest $request): JsonResponse
     {
-        $token = $this->authService->exchangeAuthorizationCode($request->string('code')->toString());
+        $token = $this->authService->exchangeAuthorizationCode((string) $request->input('code', ''));
 
         return response()->json($token->toFrontendPayload());
     }
@@ -179,8 +179,8 @@ class SsoAuthApiController extends Controller
     public function refresh(RefreshTokenRequest $request): JsonResponse
     {
         $token = $this->authService->refreshToken(
-            $request->string('refresh_token')->toString(),
-            $request->string('scope')->toString(),
+            (string) $request->input('refresh_token', ''),
+            (string) $request->input('scope', ''),
         );
 
         $response = response()->json($token->toFrontendPayload());

@@ -3,7 +3,7 @@
         'name' => 'usjnet/laravel-sso',
         'pretty_version' => 'dev-master',
         'version' => 'dev-master',
-        'reference' => 'bdb8d621a1c20f344bd9549de42c7799a241de86',
+        'reference' => '838aee369ff5054e3cb448332d1698cd5980650e',
         'type' => 'library',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -649,7 +649,7 @@
         'usjnet/laravel-sso' => array(
             'pretty_version' => 'dev-master',
             'version' => 'dev-master',
-            'reference' => 'bdb8d621a1c20f344bd9549de42c7799a241de86',
+            'reference' => '838aee369ff5054e3cb448332d1698cd5980650e',
             'type' => 'library',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

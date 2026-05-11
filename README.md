@@ -11,7 +11,7 @@ Laravel package for SSO login with:
 ## 1. Requirements
 
 - PHP **8.1+** (the package uses `readonly` properties; PHP 8.0 is not supported)
-- Laravel **10.x, 11.x, or 12.x** (Composer resolves `illuminate/*` and Symfony to the versions your app uses)
+- Laravel **9.x, 10.x, 11.x, or 12.x** (Composer resolves `illuminate/*` and Symfony to the versions your app uses)
 - A running **OAuth2/OIDC-style SSO** (e.g. Laravel Passport) exposing:
   - `GET /oauth/authorize`
   - `POST /oauth/token`
@@ -151,7 +151,7 @@ Exclude SSO cookie names from Laravel’s cookie encryption (same names as in co
 })
 ```
 
-**Laravel 10** (`app/Http/Middleware/EncryptCookies.php`): add the same names to the `$except` array property on `EncryptCookies`.
+**Laravel 9 or 10** (`app/Http/Middleware/EncryptCookies.php`): add the same names to the `$except` array property on `EncryptCookies`.
 
 The package registers `sso.token` and `sso.web` automatically.
 
@@ -301,6 +301,10 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |
 | 401 on `/api/auth/me` | `Authorization: Bearer` or HttpOnly cookie; `withCredentials` on SPA |
 | Package not loading | `composer dump-autoload`; clear config cache |
+| Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
+| Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |
+
+On **PHP 8.1** with **Laravel 9**, you may need both pins above so the rest of your app’s dev tooling and scheduler dependencies stay installable.
 
 ---
 
