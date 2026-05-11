@@ -4,7 +4,7 @@ Laravel package for SSO login with:
 
 - `/sso/spa/redirect` and `/sso/spa/callback`
 - `/api/auth/*`
-- `sso.web` and `sso.token`
+- `sso.web` (and optional alias, e.g. `auth` via `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`) and `sso.token`
 - `Auth::user()` support after middleware
 - logout cleanup when SSO session is invalid
 
@@ -137,9 +137,9 @@ php artisan usjnet-sso:install
 php artisan usjnet-sso:doctor
 ```
 
-`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, then **Auth user mode** (`sso` vs `system`), and writes `.env`.
+`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, **Auth user mode** (`sso` vs `system`), **optional `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`** (e.g. `auth`), then cookie/CORS keys into `.env`.
 
-- Use a **real terminal** (TTY). With **`--no-interaction`** or some IDE runners, Laravel skips prompts: auth mode defaults to **`sso`** and a **warning** is shown — set **`USJNET_SSO_AUTH_USER_MODE`** in `.env` or run `php artisan usjnet-sso:install --auth-mode=system`.
+- Use a **real terminal** (TTY). With **`--no-interaction`** or some IDE runners, Laravel skips prompts: auth mode defaults to **`sso`** and a **warning** is shown — set **`USJNET_SSO_AUTH_USER_MODE`** in `.env` or run `php artisan usjnet-sso:install --auth-mode=system`. The web middleware alias question is skipped unless you pass **`--web-middleware-alias=auth`** (or another valid name).
 - Confirm Composer picked up this package: `composer show usjnet/laravel-sso` then `composer update usjnet/laravel-sso` (or refresh your path / VCS dependency).
 
 You can re-run the installer anytime to update values.
@@ -177,13 +177,29 @@ Exclude SSO cookie names from Laravel’s cookie encryption (same names as in co
 
 **Laravel 9 or 10** (`app/Http/Middleware/EncryptCookies.php`): add the same names to the `$except` array property on `EncryptCookies`.
 
-The package registers `sso.token` and `sso.web` automatically.
+The package registers `sso.token` and `sso.web` automatically. Optionally set **`USJNET_SSO_WEB_MIDDLEWARE_ALIAS=auth`** in `.env` to also register **`auth`** as the same middleware (then you can use `Route::middleware('auth')`). Remove Laravel’s default **`auth`** → `Authenticate` alias if both exist and the wrong one wins (depends on service provider order).
 
 ## 6. Use in your app
 
 ### Web routes
 
+If you prefer the familiar name **`auth`**, set in `.env`:
+
+```env
+USJNET_SSO_WEB_MIDDLEWARE_ALIAS=auth
+```
+
+Then run `php artisan config:clear`. **`sso.web` remains available** as an alias to the same middleware.
+
 If your new project has backend-rendered pages (Blade/Inertia/etc.), protect those routes with:
+
+```php
+Route::middleware('auth')->group(function (): void {
+    Route::view('/home', 'home');
+});
+```
+
+Or keep using the package name:
 
 ```php
 Route::middleware('sso.web')->group(function (): void {
@@ -201,14 +217,14 @@ Behavior:
 
 Both middleware paths now enforce hard cleanup on invalid/expired sessions:
 
-- **`sso.web`**: remote SSO logout (best effort), local session invalidation, cookie cleanup, redirect to login
+- **`sso.web`** (or your **`USJNET_SSO_WEB_MIDDLEWARE_ALIAS`**, e.g. **`auth`**): remote SSO logout (best effort), local session invalidation, cookie cleanup, redirect to login
 - **`sso.token`**: same cleanup + JSON `401` (`Session expired or invalid. Please login again.`)
 
 This helps enforce global logout behavior across connected apps when SSO token is no longer valid.
 
 ### Access user in controllers
 
-After `sso.web` or `sso.token` middleware runs, all of these work:
+After `sso.web`, your configured web alias (e.g. `auth`), or `sso.token` middleware runs, all of these work:
 
 ```php
 $request->user();        // GenericUser (sso mode) or App\Models\User (system mode)

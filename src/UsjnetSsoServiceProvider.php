@@ -26,6 +26,11 @@ class UsjnetSsoServiceProvider extends ServiceProvider
         $router->aliasMiddleware('sso.token', ValidateSsoToken::class);
         $router->aliasMiddleware('sso.web', EnsureSsoWebAuthenticated::class);
 
+        $webAlias = config('usjnet-sso.web_middleware_alias');
+        if (is_string($webAlias) && $webAlias !== '' && $webAlias !== 'sso.web' && preg_match('/^[a-zA-Z0-9_-]+$/', $webAlias) === 1) {
+            $router->aliasMiddleware($webAlias, EnsureSsoWebAuthenticated::class);
+        }
+
         Route::middleware('web')->group(function (): void {
             require __DIR__.'/../routes/sso-web.php';
         });

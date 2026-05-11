@@ -53,6 +53,14 @@ return [
     'api_route_middleware' => ['api'],
 
     /**
+     * Optional extra route middleware alias for EnsureSsoWebAuthenticated (same as `sso.web`).
+     * Example: set USJNET_SSO_WEB_MIDDLEWARE_ALIAS=auth to use Route::middleware('auth').
+     * If your app already maps `auth` to Laravel's Authenticate middleware, remove that mapping or rely on
+     * provider registration order — the last alias wins.
+     */
+    'web_middleware_alias' => trim((string) env('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', '')) ?: null,
+
+    /**
      * Web paths that must not require an SSO access cookie when `sso.web` is on the same stack as `web`
      * (e.g. `sso.web` appended to the global `web` group). Prevents redirect loops on OAuth start/callback.
      * Paths are relative to the app root URL (no leading slash), e.g. "sso/spa/redirect".

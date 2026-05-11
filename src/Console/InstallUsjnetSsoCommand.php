@@ -7,9 +7,9 @@ use Illuminate\Support\Str;
 
 class InstallUsjnetSsoCommand extends Command
 {
-    protected $signature = 'usjnet-sso:install {--auth-mode= : Force USJNET_SSO_AUTH_USER_MODE: sso or system (non-interactive / CI)}';
+    protected $signature = 'usjnet-sso:install {--auth-mode= : Force USJNET_SSO_AUTH_USER_MODE: sso or system (non-interactive / CI)} {--web-middleware-alias= : Set USJNET_SSO_WEB_MIDDLEWARE_ALIAS (e.g. auth)}';
 
-    protected $description = 'Interactive install: publish config, OAuth client, auth user mode (sso vs system), and .env';
+    protected $description = 'Interactive install: publish config, OAuth client, auth mode, optional web middleware alias, and .env';
 
     public function handle(): int
     {
@@ -40,6 +40,8 @@ class InstallUsjnetSsoCommand extends Command
             ? $appUrl
             : (string) $this->ask('CORS_ALLOWED_ORIGINS (comma-separated)', 'http://127.0.0.1:3000,http://localhost:3000');
 
+        $webMwAlias = $this->promptWebMiddlewareAlias();
+
         $this->upsertEnv('APP_URL', $appUrl);
         $this->upsertEnv('USJNET_SSO_BASE_URL', $ssoBaseUrl);
         $this->upsertEnv('USJNET_SSO_CLIENT_ID', $clientId);
@@ -51,6 +53,10 @@ class InstallUsjnetSsoCommand extends Command
             $this->upsertEnv('USJNET_SSO_SYSTEM_USER_MODEL', $userModel);
             $autoCreate = $this->confirm('Create a local user row automatically if email is not in the database?', false);
             $this->upsertEnv('USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING', $autoCreate ? 'true' : 'false');
+        }
+
+        if ($webMwAlias !== null && $webMwAlias !== '') {
+            $this->upsertEnv('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', $webMwAlias);
         }
 
         $this->upsertEnv('USJNET_SSO_REDIRECT_URI', $redirectUri);
@@ -73,7 +79,7 @@ class InstallUsjnetSsoCommand extends Command
         $this->line('     If login shows token_exchange_failed / Client authentication failed: USJNET_SSO_CLIENT_ID and USJNET_SSO_CLIENT_SECRET must match a confidential OAuth client on the SSO server (no extra spaces in .env).');
         $this->line('  2. Exclude SSO cookies from encryption: Laravel 11+ in bootstrap/app.php (encryptCookies except); Laravel 9–10 in app/Http/Middleware/EncryptCookies::$except.');
         $this->line('  3. In config/cors.php set supports_credentials=true and allowed_origins includes: '.$corsOrigins.' (installer creates config/cors.php if missing).');
-        $this->line('  4. Middleware alias sso.token is already registered by package.');
+        $this->line('  4. Middleware: sso.web / sso.token are registered; if you set USJNET_SSO_WEB_MIDDLEWARE_ALIAS, remove Laravel’s default `auth` alias if it conflicts.');
         $this->line('  5. Run: php artisan config:clear');
 
         return self::SUCCESS;
@@ -114,6 +120,54 @@ class InstallUsjnetSsoCommand extends Command
             $this->warn('Unrecognised answer; using sso.');
 
             return 'sso';
+        }
+
+        return $answer;
+    }
+
+    /**
+     * Optional extra alias for EnsureSsoWebAuthenticated (e.g. auth). Null = do not write .env key.
+     */
+    private function promptWebMiddlewareAlias(): ?string
+    {
+        $opt = $this->option('web-middleware-alias');
+        if (is_string($opt) && trim($opt) !== '') {
+            $a = trim($opt);
+            if (strtolower($a) === 'sso.web') {
+                $this->warn('Ignoring --web-middleware-alias=sso.web (already registered as sso.web).');
+
+                return null;
+            }
+            if (preg_match('/^[a-zA-Z0-9_-]+$/', $a) === 1) {
+                $this->line('Web middleware alias from <info>--web-middleware-alias</info>: <fg=cyan>'.$a.'</>');
+
+                return $a;
+            }
+            $this->warn('Invalid --web-middleware-alias ignored (use letters, numbers, underscore, hyphen).');
+
+            return null;
+        }
+
+        if (! $this->input->isInteractive()) {
+            return null;
+        }
+
+        $this->newLine();
+        $this->line(' <options=bold>Optional web middleware alias</> — same as <fg=cyan>sso.web</> but lets you use a short name in routes (e.g. <fg=cyan>auth</>).');
+        $default = trim((string) (config('usjnet-sso.web_middleware_alias') ?? ''));
+        $answer = trim((string) $this->ask('USJNET_SSO_WEB_MIDDLEWARE_ALIAS (leave empty to skip; common: auth)', $default));
+        if ($answer === '') {
+            return null;
+        }
+        if (strtolower($answer) === 'sso.web') {
+            $this->warn('"sso.web" is already the default alias; skipping extra env key.');
+
+            return null;
+        }
+        if (preg_match('/^[a-zA-Z0-9_-]+$/', $answer) !== 1) {
+            $this->warn('Invalid alias (use letters, numbers, underscore, hyphen only); skipping.');
+
+            return null;
         }
 
         return $answer;
