@@ -7,7 +7,7 @@ use Illuminate\Support\Str;
 
 class InstallUsjnetSsoCommand extends Command
 {
-    protected $signature = 'usjnet-sso:install';
+    protected $signature = 'usjnet-sso:install {--auth-mode= : Force USJNET_SSO_AUTH_USER_MODE: sso or system (non-interactive / CI)}';
 
     protected $description = 'Interactive install: publish config, OAuth client, auth user mode (sso vs system), and .env';
 
@@ -30,14 +30,7 @@ class InstallUsjnetSsoCommand extends Command
         $clientId = (string) $this->ask('USJNET_SSO_CLIENT_ID', (string) config('usjnet-sso.client_id', ''));
         $clientSecret = (string) $this->secret('USJNET_SSO_CLIENT_SECRET (input hidden)');
 
-        $authMode = $this->choice(
-            'After SSO login, how should Laravel Auth::user() work?',
-            [
-                'sso' => 'SSO only — GenericUser built from SSO /api/user JSON (no local users table)',
-                'system' => 'System user — load App\\Models\\User (or your model) by email from SSO profile',
-            ],
-            'sso'
-        );
+        $authMode = $this->promptAuthUserMode();
 
         $frontendHome = $style === 'single'
             ? $appUrl.'/home'
@@ -84,6 +77,46 @@ class InstallUsjnetSsoCommand extends Command
         $this->line('  5. Run: php artisan config:clear');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @return 'sso'|'system'
+     */
+    private function promptAuthUserMode(): string
+    {
+        $opt = $this->option('auth-mode');
+        if (is_string($opt) && trim($opt) !== '') {
+            $m = strtolower(trim($opt));
+            if (in_array($m, ['sso', 'system'], true)) {
+                $this->line('Auth user mode from <info>--auth-mode</info>: <fg=cyan>'.$m.'</>');
+
+                return $m;
+            }
+            $this->warn('Invalid --auth-mode (use sso or system). Prompting instead.');
+        }
+
+        if (! $this->input->isInteractive()) {
+            $this->warn('Non-interactive terminal: defaulting to <fg=cyan>sso</>. Set USJNET_SSO_AUTH_USER_MODE in .env or pass <info>--auth-mode=system</info>.');
+
+            return 'sso';
+        }
+
+        $this->newLine();
+        $this->line(' <options=bold>Auth user mode</> — how Auth::user() is set after SSO login:');
+        $this->line('   sso     → GenericUser from SSO /api/user JSON (no local users row required)');
+        $this->line('   system  → your Eloquent User model, matched by email from SSO profile');
+        $default = strtolower(trim((string) config('usjnet-sso.auth_user_mode', 'sso')));
+        if (! in_array($default, ['sso', 'system'], true)) {
+            $default = 'sso';
+        }
+        $answer = strtolower(trim((string) $this->ask('Type sso or system', $default)));
+        if (! in_array($answer, ['sso', 'system'], true)) {
+            $this->warn('Unrecognised answer; using sso.');
+
+            return 'sso';
+        }
+
+        return $answer;
     }
 
     private function upsertEnv(string $key, string $value): void

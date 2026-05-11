@@ -137,10 +137,10 @@ php artisan usjnet-sso:install
 php artisan usjnet-sso:doctor
 ```
 
-`usjnet-sso:install` asks project style, **OAuth client credentials**, **Auth user mode** (`sso` vs `system` / local `User` by email), and writes recommended `.env` values:
+`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, then **Auth user mode** (`sso` vs `system`), and writes `.env`.
 
-- **`separate`**: frontend and backend are separate apps/domains (asks SPA CORS origins).
-- **`single`**: frontend + backend in one Laravel app/domain (uses same-origin defaults).
+- Use a **real terminal** (TTY). With **`--no-interaction`** or some IDE runners, Laravel skips prompts: auth mode defaults to **`sso`** and a **warning** is shown — set **`USJNET_SSO_AUTH_USER_MODE`** in `.env` or run `php artisan usjnet-sso:install --auth-mode=system`.
+- Confirm Composer picked up this package: `composer show usjnet/laravel-sso` then `composer update usjnet/laravel-sso` (or refresh your path / VCS dependency).
 
 You can re-run the installer anytime to update values.
 If `config/cors.php` is missing, installer creates it with `supports_credentials=true` and env-driven `CORS_ALLOWED_ORIGINS`.
