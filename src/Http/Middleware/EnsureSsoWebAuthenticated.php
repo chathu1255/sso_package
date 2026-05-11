@@ -23,6 +23,10 @@ class EnsureSsoWebAuthenticated
 
     public function handle(Request $request, Closure $next): Response
     {
+        if ($this->allowsWithoutAccessCookie($request)) {
+            return $next($request);
+        }
+
         $cookieName = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
         $token = $request->cookie($cookieName);
 
@@ -54,6 +58,31 @@ class EnsureSsoWebAuthenticated
         }
 
         return redirect('/sso/spa/redirect?'.http_build_query($query));
+    }
+
+    /**
+     * OAuth start/callback must never be gated by the access-token cookie, or we redirect to ourselves forever
+     * when `sso.web` is part of the global `web` middleware group.
+     */
+    private function allowsWithoutAccessCookie(Request $request): bool
+    {
+        if ($request->routeIs('usjnet.sso.spa.redirect', 'usjnet.sso.spa.callback')) {
+            return true;
+        }
+
+        $path = trim((string) $request->path(), '/');
+        $paths = config('usjnet-sso.web_sso_public_paths', []);
+        if (! is_array($paths)) {
+            return false;
+        }
+        foreach ($paths as $allowed) {
+            $allowed = trim((string) $allowed, '/');
+            if ($allowed !== '' && $path === $allowed) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 

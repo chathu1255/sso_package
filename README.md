@@ -304,7 +304,7 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | `invalid_state` | Same tab session; one redirect from SPA; `APP_URL` matches cookie domain |
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |
 | 401 on `/api/auth/me` | `Authorization: Bearer` or HttpOnly cookie; `withCredentials` on SPA |
-| Package not loading | `composer dump-autoload`; clear config cache |
+| 301/302 loop / “too many redirects” | Do not require an access cookie on OAuth routes: this package skips **`sso/spa/redirect`** and **`sso/spa/callback`** inside `sso.web`. If you customized paths, set **`web_sso_public_paths`** in `config/usjnet-sso.php`. Prefer attaching **`sso.web` only to protected route groups**, not the entire `web` stack. |
 | Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
 | Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |
 

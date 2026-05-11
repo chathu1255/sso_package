@@ -53,6 +53,16 @@ return [
     'api_route_middleware' => ['api'],
 
     /**
+     * Web paths that must not require an SSO access cookie when `sso.web` is on the same stack as `web`
+     * (e.g. `sso.web` appended to the global `web` group). Prevents redirect loops on OAuth start/callback.
+     * Paths are relative to the app root URL (no leading slash), e.g. "sso/spa/redirect".
+     */
+    'web_sso_public_paths' => [
+        'sso/spa/redirect',
+        'sso/spa/callback',
+    ],
+
+    /**
      * Guards that receive the SSO GenericUser (so Auth::guard('api')->user() works, not only the default guard).
      * Comma-separated in env, e.g. "web,sanctum". Null = default guard from config/auth.php plus "web" and "api" if defined.
      */
