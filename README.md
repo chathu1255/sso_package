@@ -10,8 +10,8 @@ Laravel package for SSO login with:
 
 ## 1. Requirements
 
-- PHP **8.2+**
-- Laravel **11.x or 12.x**
+- PHP **8.1+** (the package uses `readonly` properties; PHP 8.0 is not supported)
+- Laravel **10.x, 11.x, or 12.x** (Composer resolves `illuminate/*` and Symfony to the versions your app uses)
 - A running **OAuth2/OIDC-style SSO** (e.g. Laravel Passport) exposing:
   - `GET /oauth/authorize`
   - `POST /oauth/token`
@@ -138,7 +138,9 @@ Use doctor after changing domains, env, CORS, or route prefixes.
 
 ### Cookie encryption exceptions (`bootstrap/app.php`)
 
-Exclude SSO cookie names from Laravel’s cookie encryption (same names as in config, default `sso_access_token`, `sso_refresh_token`):
+Exclude SSO cookie names from Laravel’s cookie encryption (same names as in config, default `sso_access_token`, `sso_refresh_token`).
+
+**Laravel 11+** (`bootstrap/app.php`):
 
 ```php
 ->withMiddleware(function (Middleware $middleware): void {
@@ -148,6 +150,8 @@ Exclude SSO cookie names from Laravel’s cookie encryption (same names as in co
     ]);
 })
 ```
+
+**Laravel 10** (`app/Http/Middleware/EncryptCookies.php`): add the same names to the `$except` array property on `EncryptCookies`.
 
 The package registers `sso.token` and `sso.web` automatically.
 

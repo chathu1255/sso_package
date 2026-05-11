@@ -59,7 +59,7 @@ class InstallUsjnetSsoCommand extends Command
         $this->newLine();
         $this->info('Next steps (required):');
         $this->line('  1. Register OAuth redirect URI at SSO exactly as: '.$redirectUri);
-        $this->line('  2. In bootstrap/app.php set encryptCookies(except: [sso_access_token, sso_refresh_token]).');
+        $this->line('  2. Exclude SSO cookies from encryption: Laravel 11+ in bootstrap/app.php (encryptCookies except); Laravel 10 in app/Http/Middleware/EncryptCookies::$except.');
         $this->line('  3. In config/cors.php set supports_credentials=true and allowed_origins includes: '.$corsOrigins.' (installer creates config/cors.php if missing).');
         $this->line('  4. Middleware alias sso.token is already registered by package.');
         $this->line('  5. Run: php artisan config:clear');
