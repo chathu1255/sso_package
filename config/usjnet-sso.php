@@ -31,6 +31,18 @@ return [
 
     'timeout' => (int) env('USJNET_SSO_TIMEOUT', env('SSO_TIMEOUT', 15)),
 
+    /**
+     * SSO path for verifying the access token is still valid (GET, Bearer token, must return 2xx when OK).
+     * Change if your IdP exposes a different introspection or profile URL.
+     */
+    'access_token_validation_path' => env('USJNET_SSO_TOKEN_VALIDATION_PATH', '/api/user'),
+
+    /**
+     * When the access token is dead on web routes: "oauth" = redirect to /sso/spa/redirect (default),
+     * "frontend" = redirect to USJNET_SSO_FRONTEND_HOME_URL with ?login_error=session_expired (SPA login page).
+     */
+    'invalid_sso_web_session_redirect' => (($r = strtolower(trim((string) env('USJNET_SSO_INVALID_SESSION_REDIRECT', 'oauth')))) === 'frontend') ? 'frontend' : 'oauth',
+
     'access_token_cookie' => env('USJNET_SSO_ACCESS_TOKEN_COOKIE', env('SSO_ACCESS_TOKEN_COOKIE', 'sso_access_token')),
 
     'refresh_token_cookie' => env('USJNET_SSO_REFRESH_TOKEN_COOKIE', env('SSO_REFRESH_TOKEN_COOKIE', 'sso_refresh_token')),

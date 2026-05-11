@@ -80,7 +80,8 @@ class InstallUsjnetSsoCommand extends Command
         $this->line('  2. Exclude SSO cookies from encryption: Laravel 11+ in bootstrap/app.php (encryptCookies except); Laravel 9–10 in app/Http/Middleware/EncryptCookies::$except.');
         $this->line('  3. In config/cors.php set supports_credentials=true and allowed_origins includes: '.$corsOrigins.' (installer creates config/cors.php if missing).');
         $this->line('  4. Middleware: sso.web / sso.token are registered; if you set USJNET_SSO_WEB_MIDDLEWARE_ALIAS, remove Laravel’s default `auth` alias if it conflicts.');
-        $this->line('  5. Run: php artisan config:clear');
+        $this->line('  5. Optional: USJNET_SSO_INVALID_SESSION_REDIRECT=frontend to send users to SPA login when SSO token dies; USJNET_SSO_TOKEN_VALIDATION_PATH if your IdP uses a non-default profile URL.');
+        $this->line('  6. Run: php artisan config:clear');
 
         return self::SUCCESS;
     }

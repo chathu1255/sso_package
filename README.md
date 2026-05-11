@@ -93,6 +93,12 @@ USJNET_SSO_FRONTEND_HOME_URL=http://127.0.0.1:3000/home
 # USJNET_SSO_FRONTEND_CALLBACK_URL=http://127.0.0.1:3000/user_callback
 
 USJNET_SSO_SCOPE=view-user
+
+# Optional: when the access token is dead, redirect browser to SPA login instead of /sso/spa/redirect
+# USJNET_SSO_INVALID_SESSION_REDIRECT=frontend
+
+# Optional: override GET path used to verify token is still valid (default /api/user)
+# USJNET_SSO_TOKEN_VALIDATION_PATH=/api/user
 ```
 
 Register at the SSO server:
@@ -211,7 +217,7 @@ Behavior:
 
 - if SSO access cookie is missing: redirect to `/sso/spa/redirect?state=...`
 - if cookie exists but token is invalid: package performs SSO logout, clears local session/cookies, then redirects with `prompt_login=1`
-- if token is valid: request user is available as `sso_user`, `$request->user()`, and `Auth::user()`
+- if token is valid: on **every** request the package calls the SSO validation URL (default **`GET /api/user`**) with the access token; if that fails, it **logs out locally** (all Laravel guards + session), clears SSO cookies, then redirects to OAuth re-login or your SPA (see **`USJNET_SSO_INVALID_SESSION_REDIRECT`**).
 
 ### Invalid-session cleanup
 
@@ -341,6 +347,7 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 
 | Issue | Check |
 |-------|--------|
+| `login_error=session_expired` | SSO access token failed validation on a web request. Set **`USJNET_SSO_INVALID_SESSION_REDIRECT=frontend`** to land on **`USJNET_SSO_FRONTEND_HOME_URL`** instead of `/sso/spa/redirect`. Ensure protected routes use **`sso.web`** / **`auth`** (your alias). |
 | `token_exchange_failed` + **Client authentication failed** | OAuth **client_id** / **client_secret** do not match the SSO server (wrong secret, typo, or `.env` not reloaded). Re-copy the secret from the SSO admin UI; use `php artisan config:clear`. Client must be **confidential** if you send **client_secret**. **redirect_uri** in token request must exactly match the one used in `/oauth/authorize` and SSO registration. |
 | `invalid_state` | Same tab session; one redirect from SPA; `APP_URL` matches cookie domain |
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |

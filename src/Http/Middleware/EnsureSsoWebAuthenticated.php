@@ -40,10 +40,9 @@ class EnsureSsoWebAuthenticated
             $user = $this->ssoAuthService->validateAccessToken($token);
         } catch (Throwable) {
             $this->performSsoLogoutSafely($request, $this->ssoAuthService);
-            $this->clearLocalSession($request);
-            Auth::forgetGuards();
+            $this->purgeLocalAuthentication($request);
 
-            return $this->clearAuthCookies($this->redirectToSso($request, true));
+            return $this->clearAuthCookies($this->redirectAfterInvalidSsoWebToken($request, true));
         }
 
         try {
@@ -79,6 +78,24 @@ class EnsureSsoWebAuthenticated
         }
 
         return redirect('/sso/spa/redirect?'.http_build_query($query));
+    }
+
+    /**
+     * When the SSO access token is no longer valid: OAuth re-login, or SPA login URL (see USJNET_SSO_INVALID_SESSION_REDIRECT).
+     */
+    private function redirectAfterInvalidSsoWebToken(Request $request, bool $forceLogin = false): Response
+    {
+        if (config('usjnet-sso.invalid_sso_web_session_redirect') === 'frontend') {
+            $home = rtrim((string) config('usjnet-sso.frontend_home_url', ''), '/');
+            if ($home !== '') {
+                return redirect()->away($home.'?'.http_build_query([
+                    'login_error' => 'session_expired',
+                    'login_error_description' => 'Your SSO session is no longer valid. Please sign in again.',
+                ]));
+            }
+        }
+
+        return $this->redirectToSso($request, $forceLogin);
     }
 
     /**

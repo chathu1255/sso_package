@@ -46,7 +46,19 @@ class SsoAuthService
 
     public function validateAccessToken(string $token): array
     {
-        $response = $this->client()->withToken($token)->get('/api/user');
+        $path = trim((string) config('usjnet-sso.access_token_validation_path', '/api/user'));
+        if ($path === '' || ! str_starts_with($path, '/') || str_contains($path, '..')) {
+            $path = '/api/user';
+        }
+
+        $response = $this->client()
+            ->withToken($token)
+            ->withHeaders([
+                'Accept' => 'application/json',
+                'Cache-Control' => 'no-cache',
+                'Pragma' => 'no-cache',
+            ])
+            ->get($path);
 
         if ($response->failed()) {
             throw new HttpException($response->status(), 'Invalid or expired SSO token.');

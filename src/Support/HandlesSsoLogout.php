@@ -3,6 +3,7 @@
 namespace Usjnet\Sso\Support;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use Usjnet\Sso\SsoAuthService;
@@ -23,11 +24,34 @@ trait HandlesSsoLogout
         }
     }
 
-    private function clearLocalSession(Request $request): void
+    /**
+     * Clear Laravel auth state (including Eloquent "system" users) and the session.
+     */
+    protected function purgeLocalAuthentication(Request $request): void
     {
+        foreach (array_keys(config('auth.guards', [])) as $guardName) {
+            if (! is_string($guardName) || $guardName === '') {
+                continue;
+            }
+            try {
+                $guard = Auth::guard($guardName);
+                if (method_exists($guard, 'logout')) {
+                    $guard->logout();
+                }
+            } catch (Throwable) {
+                //
+            }
+        }
+
+        Auth::forgetGuards();
+
         if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+            try {
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+            } catch (Throwable) {
+                //
+            }
         }
     }
 

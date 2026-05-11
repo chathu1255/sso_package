@@ -4,7 +4,6 @@ namespace Usjnet\Sso\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use InvalidArgumentException;
@@ -35,8 +34,7 @@ class ValidateSsoToken
             $user = $this->ssoAuthService->validateAccessToken($token);
         } catch (Throwable) {
             $this->performSsoLogoutSafely($request, $this->ssoAuthService);
-            $this->clearLocalSession($request);
-            Auth::forgetGuards();
+            $this->purgeLocalAuthentication($request);
 
             return $this->clearAuthCookies(response()->json([
                 'message' => 'Session expired or invalid. Please login again.',
