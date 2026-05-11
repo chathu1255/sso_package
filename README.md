@@ -188,9 +188,13 @@ After `sso.web` or `sso.token` middleware runs, all of these work:
 
 ```php
 $request->user();
-$request->attributes->get('sso_user');
+$request->attributes->get('sso_user'); // raw JSON from SSO /api/user
 Auth::user();
+Auth::id();
+Auth::guard('api')->user(); // when "api" is in auth.php (default priming includes web, api, sanctum if defined)
 ```
+
+If you use a custom guard name, set **`USJNET_SSO_AUTH_GUARDS=web,your_guard`** in `.env` (see `config/usjnet-sso.php`).
 
 Quick built-in debug endpoint:
 
@@ -284,8 +288,8 @@ Route::middleware(['sso.web', 'check.role'])->group(function (): void {
 
 Rule:
 
-- package = authentication
-- app = authorization / business rules
+- **Package** = authentication. After `sso.web` / `sso.token`, `Auth::user()` is set on the default guard and on **`web`**, **`api`**, and **`sanctum`** (if that guard exists). SSO JSON often omits `id`; the package maps `sub` / `user_id` / etc. into `id` for `GenericUser`. To target other guards only, set **`USJNET_SSO_AUTH_GUARDS`** in `.env` (comma-separated), e.g. `web,custom`.
+- **App** = authorization / business rules
 
 ## 11. Avoid duplicate routes
 

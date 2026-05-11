@@ -3,17 +3,18 @@
 namespace Usjnet\Sso\Http\Middleware;
 
 use Closure;
-use Illuminate\Auth\GenericUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use Usjnet\Sso\SsoAuthService;
+use Usjnet\Sso\Support\AuthenticatesSsoRequest;
 use Usjnet\Sso\Support\HandlesSsoLogout;
 
 class EnsureSsoWebAuthenticated
 {
+    use AuthenticatesSsoRequest;
     use HandlesSsoLogout;
 
     public function __construct(private readonly SsoAuthService $ssoAuthService)
@@ -31,10 +32,7 @@ class EnsureSsoWebAuthenticated
 
         try {
             $user = $this->ssoAuthService->validateAccessToken($token);
-            $authUser = new GenericUser($user);
-            $request->attributes->set('sso_user', $user);
-            $request->setUserResolver(static fn (): GenericUser => $authUser);
-            Auth::setUser($authUser);
+            $this->authenticateSsoRequest($request, $user);
         } catch (Throwable) {
             $this->performSsoLogoutSafely($request, $this->ssoAuthService);
             $this->clearLocalSession($request);

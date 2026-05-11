@@ -52,6 +52,14 @@ return [
     /** Middleware for JSON auth routes (default Laravel api stack). */
     'api_route_middleware' => ['api'],
 
+    /**
+     * Guards that receive the SSO GenericUser (so Auth::guard('api')->user() works, not only the default guard).
+     * Comma-separated in env, e.g. "web,sanctum". Null = default guard from config/auth.php plus "web" and "api" if defined.
+     */
+    'auth_guards' => env('USJNET_SSO_AUTH_GUARDS')
+        ? array_values(array_filter(array_map('trim', explode(',', (string) env('USJNET_SSO_AUTH_GUARDS')))))
+        : null,
+
     /** POST /api/auth/login — password grant to SSO. */
     'password_login_enabled' => env('USJNET_SSO_PASSWORD_LOGIN', true),
 
