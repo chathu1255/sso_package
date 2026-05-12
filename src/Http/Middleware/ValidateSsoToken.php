@@ -31,7 +31,7 @@ class ValidateSsoToken
         }
 
         try {
-            $user = $this->ssoAuthService->validateAccessToken($token);
+            $user = $this->ssoAuthService->validateAccessTokenForHttpRequest($request, $token);
         } catch (Throwable) {
             $this->performSsoLogoutSafely($request, $this->ssoAuthService);
             $this->purgeLocalAuthentication($request);

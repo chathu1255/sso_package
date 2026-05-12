@@ -15,7 +15,14 @@ use Usjnet\Sso\SsoAuthService;
 use Usjnet\Sso\Support\AuthenticatesSsoRequest;
 use Usjnet\Sso\Support\HandlesSsoLogout;
 
-class EnsureSsoWebAuthenticated
+/**
+ * Re-validates an SSO access cookie with the IdP on every web request (when appended to the `web` group).
+ * Use this so a logout or revocation in another app is reflected here on the next refresh or navigation.
+ *
+ * Unlike {@see EnsureSsoWebAuthenticated}, this middleware does nothing when no SSO cookie is present
+ * (guest pages stay guest). When a cookie exists but the token is invalid, it purges local auth and cookies.
+ */
+class VerifySsoAccessTokenLive
 {
     use AuthenticatesSsoRequest;
     use HandlesSsoLogout;
@@ -40,7 +47,7 @@ class EnsureSsoWebAuthenticated
         $token = $request->cookie($cookieName);
 
         if (! is_string($token) || trim($token) === '') {
-            return $this->redirectToSso($request);
+            return $next($request);
         }
 
         try {
@@ -58,13 +65,13 @@ class EnsureSsoWebAuthenticated
             Auth::forgetGuards();
             $home = rtrim((string) config('usjnet-sso.frontend_home_url', ''), '/');
             if ($home === '') {
-                return response($e->getMessage(), 403);
+                return $this->clearAuthCookies(response($e->getMessage(), 403));
             }
 
-            return redirect()->away($home.'?'.http_build_query([
+            return $this->clearAuthCookies(redirect()->away($home.'?'.http_build_query([
                 'login_error' => 'no_local_account',
                 'login_error_description' => $e->getMessage(),
-            ]));
+            ])));
         } catch (InvalidArgumentException $e) {
             Auth::forgetGuards();
 

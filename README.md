@@ -5,6 +5,7 @@ Laravel package for SSO login with:
 - `/sso/spa/redirect` and `/sso/spa/callback`
 - `/api/auth/*`
 - `sso.web` (and optional alias, e.g. `auth` via `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`) and `sso.token`
+- **`sso.web.live`** — optional global re-check of the SSO cookie on every `web` request (see below); enabled by default via config
 - `Auth::user()` support after middleware
 - logout cleanup when SSO session is invalid
 
@@ -215,24 +216,34 @@ Route::middleware('sso.web')->group(function (): void {
 });
 ```
 
-Behavior:
+Behavior for **`sso.web`** (only on routes where you attach it):
 
 - if SSO access cookie is missing: redirect to `/sso/spa/redirect?state=...`
-- if cookie exists but token is invalid: package performs SSO logout, clears local session/cookies, then redirects with `prompt_login=1`
-- if token is valid: on **every** request the package calls the SSO validation URL (default **`GET /api/user`**) with the access token; if that fails, it **logs out locally** (all Laravel guards + session), clears SSO cookies, then redirects to OAuth re-login or your SPA (see **`USJNET_SSO_INVALID_SESSION_REDIRECT`**).
+- if cookie exists but token is invalid: package performs SSO logout, clears local session/cookies, then redirects with `prompt_login=1` (or JSON **401** when `Accept: application/json` / `expectsJson()`)
+- if token is valid: the package calls the SSO validation URL (default **`GET /api/user`**) with the access token; if that fails, it **logs out locally** (all Laravel guards + session), clears SSO cookies, then redirects to OAuth re-login or your SPA (see **`USJNET_SSO_INVALID_SESSION_REDIRECT`**).
+
+### Live SSO check on every `web` request (`sso.web.live`)
+
+If **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP`** is **true** (default in package config), **`VerifySsoAccessTokenLive`** is **appended to Laravel’s `web` middleware group**. Then any full-page request that **sends the SSO access cookie** (and is not on an OAuth or exempt path) re-validates the token with the IdP, so **logout or revocation in another app** is reflected here on the **next refresh or navigation**. The IdP is called **at most once per HTTP request** even if both **`sso.web.live`** and **`sso.web`** run (shared cache on the request). XHR/JSON clients get **401** with the same message as **`sso.token`**.
+
+- Set **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=false`** to disable the extra IdP round-trip on every `web` request (e.g. high traffic).
+- **SPA-only traffic** to **`api`** routes must still use **`sso.token`** on those routes; the `web` live middleware does not run on the `api` stack unless you add it there yourself.
+
+You may also attach the middleware manually: **`Route::middleware('sso.web.live')`** (do not duplicate if it is already pushed onto `web`).
 
 ### Invalid-session cleanup
 
 Both middleware paths now enforce hard cleanup on invalid/expired sessions:
 
-- **`sso.web`** (or your **`USJNET_SSO_WEB_MIDDLEWARE_ALIAS`**, e.g. **`auth`**): remote SSO logout (best effort), local session invalidation, cookie cleanup, redirect to login
+- **`sso.web`** (or your **`USJNET_SSO_WEB_MIDDLEWARE_ALIAS`**, e.g. **`auth`**): remote SSO logout (best effort), local session invalidation, cookie cleanup, redirect to login (or JSON **401** when appropriate)
+- **`sso.web.live`**: same when an SSO cookie is present; **no-op** when there is no cookie (guest pages stay guest)
 - **`sso.token`**: same cleanup + JSON `401` (`Session expired or invalid. Please login again.`)
 
 This helps enforce global logout behavior across connected apps when SSO token is no longer valid.
 
 ### Access user in controllers
 
-After `sso.web`, your configured web alias (e.g. `auth`), or `sso.token` middleware runs, all of these work:
+After `sso.web`, **`sso.web.live`** (when it runs), your configured web alias (e.g. `auth`), or `sso.token` middleware runs, all of these work:
 
 ```php
 $request->user();        // GenericUser (sso mode) or App\Models\User (system mode)
@@ -376,7 +387,7 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | Installer said success but `.env` has no SSO keys | Older behaviour: if **`.env` is missing**, the installer now **warns** and prints a block instead of claiming success. Create `.env` and paste or re-run. |
 | SSO doctor fails “not configured” on API | Add **`USJNET_SSO_*`** (and **`CORS_ALLOWED_ORIGINS`**) to that app’s **`.env`**, or merge from the installer output — empty env means null config and broken OAuth until keys exist. |
 | 301/302 loop / “too many redirects” | Do not require an access cookie on OAuth routes: this package skips **`sso/spa/redirect`** and **`sso/spa/callback`** inside `sso.web`. If you customized paths, set **`web_sso_public_paths`** in `config/usjnet-sso.php`. Prefer attaching **`sso.web` only to protected route groups**, not the entire `web` stack. |
-| SSO redirect on **`/admin/login`** (local login) | Set **`USJNET_SSO_WEB_LOCAL_LOGIN_PATHS=admin/login`** (path under your app URL, no leading slash), or **`USJNET_SSO_WEB_EXEMPT_PREFIXES=admin`**, or remove **`sso.web`** from the global `web` group and apply it only to SSO routes. |
+| Still “logged in” here after SSO logout elsewhere | Ensure **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true`** (default) so **`sso.web.live`** runs on the **`web`** stack; use **`sso.token`** on **`api`** routes. If the IdP still returns **200** for **`USJNET_SSO_TOKEN_VALIDATION_PATH`** until JWT expiry, shorten access-token TTL or use an endpoint that reflects revocation. |
 | 403 `no_local_account` (system mode) | SSO email must match a row in `users` (or set `USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING=true` to auto-provision). |
 | Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
 | Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |

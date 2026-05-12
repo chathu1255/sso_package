@@ -73,6 +73,18 @@ return [
     'web_middleware_alias' => trim((string) env('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', '')) ?: null,
 
     /**
+     * When true, {@see \Usjnet\Sso\Http\Middleware\VerifySsoAccessTokenLive} is appended to Laravel's `web` middleware group.
+     * Any browser request that sends the SSO access cookie is re-checked with the IdP so logout/revocation elsewhere
+     * is reflected on the next refresh or navigation (one round-trip per request; deduped with sso.web on same request).
+     * Set USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=false if you must avoid extra IdP calls on every page.
+     */
+    'verify_sso_access_token_on_web_middleware_group' => filter_var(
+        env('USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP', true),
+        FILTER_VALIDATE_BOOL,
+        FILTER_NULL_ON_FAILURE
+    ) ?? true,
+
+    /**
      * Web paths that must not require an SSO access cookie when `sso.web` is on the same stack as `web`
      * (e.g. `sso.web` appended to the global `web` group). Prevents redirect loops on OAuth start/callback.
      * Paths are relative to the app root URL (no leading slash), e.g. "sso/spa/redirect".

@@ -3,6 +3,7 @@
 namespace Usjnet\Sso;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -65,6 +66,30 @@ class SsoAuthService
         }
 
         return $response->json() ?: [];
+    }
+
+    /**
+     * Validates the access token with the IdP at most once per HTTP request (middleware may run multiple times).
+     *
+     * @return array<string, mixed>
+     */
+    public function validateAccessTokenForHttpRequest(Request $request, string $token): array
+    {
+        $trimmed = trim($token);
+        if ($trimmed === '') {
+            throw new HttpException(401, 'Invalid or expired SSO token.');
+        }
+
+        $cacheKey = 'usjnet_sso.access_token_user.'.sha1($trimmed);
+        $cached = $request->attributes->get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $user = $this->validateAccessToken($trimmed);
+        $request->attributes->set($cacheKey, $user);
+
+        return $user;
     }
 
     public function logoutUser(?string $token = null): array

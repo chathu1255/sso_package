@@ -67,6 +67,12 @@ class DoctorUsjnetSsoCommand extends Command
         $originsList = is_array($origins) ? implode(', ', $origins) : (string) $origins;
         $this->check('CORS allowed_origins configured', $originsList !== '', $originsList);
 
+        $verifyLive = config('usjnet-sso.verify_sso_access_token_on_web_middleware_group') === true;
+        $this->line(sprintf(
+            '[INFO] SSO cookie re-verification on `web` stack: %s (USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP)',
+            $verifyLive ? 'enabled' : 'disabled'
+        ));
+
         $this->newLine();
         if ($this->hasFailures) {
             $this->error('Doctor found configuration issues. Fix FAIL rows and re-run: php artisan usjnet-sso:doctor');

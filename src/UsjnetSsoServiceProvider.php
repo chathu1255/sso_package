@@ -9,6 +9,7 @@ use Usjnet\Sso\Console\DoctorUsjnetSsoCommand;
 use Usjnet\Sso\Console\InstallUsjnetSsoCommand;
 use Usjnet\Sso\Http\Middleware\EnsureSsoWebAuthenticated;
 use Usjnet\Sso\Http\Middleware\ValidateSsoToken;
+use Usjnet\Sso\Http\Middleware\VerifySsoAccessTokenLive;
 
 class UsjnetSsoServiceProvider extends ServiceProvider
 {
@@ -25,6 +26,11 @@ class UsjnetSsoServiceProvider extends ServiceProvider
         $router = $this->app['router'];
         $router->aliasMiddleware('sso.token', ValidateSsoToken::class);
         $router->aliasMiddleware('sso.web', EnsureSsoWebAuthenticated::class);
+        $router->aliasMiddleware('sso.web.live', VerifySsoAccessTokenLive::class);
+
+        if (config('usjnet-sso.verify_sso_access_token_on_web_middleware_group') === true) {
+            $router->pushMiddlewareToGroup('web', VerifySsoAccessTokenLive::class);
+        }
 
         $webAlias = config('usjnet-sso.web_middleware_alias');
         if (is_string($webAlias) && $webAlias !== '' && $webAlias !== 'sso.web' && preg_match('/^[a-zA-Z0-9_-]+$/', $webAlias) === 1) {
