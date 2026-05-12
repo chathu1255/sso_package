@@ -143,9 +143,11 @@ php artisan usjnet-sso:install
 php artisan usjnet-sso:doctor
 ```
 
-`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, **Auth user mode** (`sso` vs `system`), **optional `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`** (e.g. `auth`), then cookie/CORS keys into `.env`.
+`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, **Auth user mode** (`sso` vs `system`), **optional `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`** (e.g. `auth`), **`USJNET_SSO_FRONTEND_HOME_URL`** (for `single`, default `{APP_URL}/home`; for `separate`, your SPA origin), then cookie/CORS keys into `.env`.
 
 - Use a **real terminal** (TTY). With **`--no-interaction`** or some IDE runners, Laravel skips prompts: auth mode defaults to **`sso`** and a **warning** is shown — set **`USJNET_SSO_AUTH_USER_MODE`** in `.env` or run `php artisan usjnet-sso:install --auth-mode=system`. The web middleware alias question is skipped unless you pass **`--web-middleware-alias=auth`** (or another valid name).
+- **No `.env` file** (e.g. API project not copied from `.env.example` yet): the installer **does not write** anything; it **warns** and prints a **copy-paste block** of the variables you just entered. Create `.env`, paste (or run install again), then `php artisan config:clear`.
+- **`.env` exists but `USJNET_SSO_*` keys are missing**: Laravel still boots; `config/usjnet-sso.php` resolves those settings to **empty/null** (or the small **defaults** baked into that file, such as scope `view-user`). **SSO will not work** until `USJNET_SSO_BASE_URL`, client id/secret, redirect URI, and the rest are set — `php artisan usjnet-sso:doctor` will **FAIL** on the empty checks. You can **declare or change** any key in `.env` at any time (normal override); then run **`php artisan config:clear`** (and rebuild **`config:cache`** if your deployment uses it).
 - Confirm Composer picked up this package: `composer show usjnet/laravel-sso` then `composer update usjnet/laravel-sso` (or refresh your path / VCS dependency).
 
 You can re-run the installer anytime to update values.
@@ -328,7 +330,7 @@ Recommended pattern:
 
 ```php
 Route::middleware(['sso.web', 'check.role'])->group(function (): void {
-    Route::view('/admin', 'admin.dashboard');
+    Route::view('/dashboard', 'dashboard');
 });
 ```
 
@@ -336,6 +338,24 @@ Rule:
 
 - **Package** = authentication. After `sso.web` / `sso.token`, `Auth::user()` is set on the default guard and on **`web`**, **`api`**, and **`sanctum`** (if that guard exists). With **`USJNET_SSO_AUTH_USER_MODE=sso`** (default), that user is a **`GenericUser`** from SSO JSON; with **`system`**, it is your **`User`** model matched by email. SSO JSON is always on **`request()->attributes->get('sso_user')`**. Override guards with **`USJNET_SSO_AUTH_GUARDS`** in `.env` (comma-separated), e.g. `web,custom`.
 - **App** = authorization / business rules
+
+### Dual web login: SSO and local session (e.g. `/admin/login`)
+
+**Preferred:** point at your **local login route** (no leading slash). SSO middleware skips that URL and every path **under the same parent** as that login page — so `/admin/login` also exempts `/admin`, `/admin/dashboard`, etc.
+
+```env
+USJNET_SSO_WEB_LOCAL_LOGIN_PATHS=admin/login
+```
+
+Comma-separate multiple logins (`admin/login,staff/login`). SSO-backed routes elsewhere still require a valid SSO cookie as usual.
+
+**Alternative:** exempt a URL prefix without naming a login path:
+
+```env
+USJNET_SSO_WEB_EXEMPT_PREFIXES=admin
+```
+
+If **`sso.web`** is attached only to **SSO-backed route groups**, you can omit these keys and register **`/admin/*`** outside those groups instead.
 
 ## 11. Avoid duplicate routes
 
@@ -353,7 +373,10 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |
 | 401 on `/api/auth/me` | `Authorization: Bearer` or HttpOnly cookie; `withCredentials` on SPA |
 | Package not loading | `composer dump-autoload`; clear config cache |
+| Installer said success but `.env` has no SSO keys | Older behaviour: if **`.env` is missing**, the installer now **warns** and prints a block instead of claiming success. Create `.env` and paste or re-run. |
+| SSO doctor fails “not configured” on API | Add **`USJNET_SSO_*`** (and **`CORS_ALLOWED_ORIGINS`**) to that app’s **`.env`**, or merge from the installer output — empty env means null config and broken OAuth until keys exist. |
 | 301/302 loop / “too many redirects” | Do not require an access cookie on OAuth routes: this package skips **`sso/spa/redirect`** and **`sso/spa/callback`** inside `sso.web`. If you customized paths, set **`web_sso_public_paths`** in `config/usjnet-sso.php`. Prefer attaching **`sso.web` only to protected route groups**, not the entire `web` stack. |
+| SSO redirect on **`/admin/login`** (local login) | Set **`USJNET_SSO_WEB_LOCAL_LOGIN_PATHS=admin/login`** (path under your app URL, no leading slash), or **`USJNET_SSO_WEB_EXEMPT_PREFIXES=admin`**, or remove **`sso.web`** from the global `web` group and apply it only to SSO routes. |
 | 403 `no_local_account` (system mode) | SSO email must match a row in `users` (or set `USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING=true` to auto-provision). |
 | Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
 | Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |

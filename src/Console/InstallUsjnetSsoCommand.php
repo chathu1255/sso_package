@@ -9,7 +9,7 @@ class InstallUsjnetSsoCommand extends Command
 {
     protected $signature = 'usjnet-sso:install {--auth-mode= : Force USJNET_SSO_AUTH_USER_MODE: sso or system (non-interactive / CI)} {--web-middleware-alias= : Set USJNET_SSO_WEB_MIDDLEWARE_ALIAS (e.g. auth)}';
 
-    protected $description = 'Interactive install: publish config, OAuth client, auth mode, optional web middleware alias, and .env';
+    protected $description = 'Interactive install: publish config, OAuth client, auth mode, frontend home URL, optional web middleware alias, and .env';
 
     public function handle(): int
     {
@@ -32,9 +32,15 @@ class InstallUsjnetSsoCommand extends Command
 
         $authMode = $this->promptAuthUserMode();
 
-        $frontendHome = $style === 'single'
-            ? $appUrl.'/home'
-            : rtrim((string) $this->ask('USJNET_SSO_FRONTEND_HOME_URL', 'http://127.0.0.1:3000/home'), '/');
+        if ($style === 'single') {
+            $defaultFrontend = $appUrl.'/home';
+            $frontendHome = rtrim((string) $this->ask(
+                'USJNET_SSO_FRONTEND_HOME_URL (post-login landing in this app; same origin as APP_URL)',
+                $defaultFrontend
+            ), '/');
+        } else {
+            $frontendHome = rtrim((string) $this->ask('USJNET_SSO_FRONTEND_HOME_URL', 'http://127.0.0.1:3000/home'), '/');
+        }
         $redirectUri = (string) $this->ask('USJNET_SSO_REDIRECT_URI', $appUrl.'/sso/spa/callback');
         $corsOrigins = $style === 'single'
             ? $appUrl
@@ -42,36 +48,73 @@ class InstallUsjnetSsoCommand extends Command
 
         $webMwAlias = $this->promptWebMiddlewareAlias();
 
-        $this->upsertEnv('APP_URL', $appUrl);
-        $this->upsertEnv('USJNET_SSO_BASE_URL', $ssoBaseUrl);
-        $this->upsertEnv('USJNET_SSO_CLIENT_ID', $clientId);
-        $this->upsertEnv('USJNET_SSO_CLIENT_SECRET', $clientSecret);
-        $this->upsertEnv('USJNET_SSO_AUTH_USER_MODE', $authMode);
-
+        $systemUserModel = null;
+        $createSystemUserIfMissing = null;
         if ($authMode === 'system') {
-            $userModel = (string) $this->ask('USJNET_SSO_SYSTEM_USER_MODEL (Eloquent class)', (string) config('usjnet-sso.system_user_model', 'App\\Models\\User'));
-            $this->upsertEnv('USJNET_SSO_SYSTEM_USER_MODEL', $userModel);
-            $autoCreate = $this->confirm('Create a local user row automatically if email is not in the database?', false);
-            $this->upsertEnv('USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING', $autoCreate ? 'true' : 'false');
+            $systemUserModel = (string) $this->ask('USJNET_SSO_SYSTEM_USER_MODEL (Eloquent class)', (string) config('usjnet-sso.system_user_model', 'App\\Models\\User'));
+            $createSystemUserIfMissing = $this->confirm('Create a local user row automatically if email is not in the database?', false);
+        }
+
+        $cookieSecure = $this->confirm('Use secure cookies (https only)?', false) ? 'true' : 'false';
+        $cookieSameSite = (string) $this->choice('Cookie SameSite', ['lax', 'none', 'strict'], 'lax');
+        $scope = trim((string) config('usjnet-sso.scope', 'view-user'));
+        $scope = $scope !== '' ? $scope : 'view-user';
+
+        $envWritten = false;
+        $envWritten = $this->upsertEnv('APP_URL', $appUrl) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_BASE_URL', $ssoBaseUrl) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_CLIENT_ID', $clientId) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_CLIENT_SECRET', $clientSecret) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_AUTH_USER_MODE', $authMode) || $envWritten;
+
+        if ($authMode === 'system' && $systemUserModel !== null) {
+            $envWritten = $this->upsertEnv('USJNET_SSO_SYSTEM_USER_MODEL', $systemUserModel) || $envWritten;
+            $envWritten = $this->upsertEnv('USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING', $createSystemUserIfMissing ? 'true' : 'false') || $envWritten;
         }
 
         if ($webMwAlias !== null && $webMwAlias !== '') {
-            $this->upsertEnv('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', $webMwAlias);
+            $envWritten = $this->upsertEnv('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', $webMwAlias) || $envWritten;
         }
 
-        $this->upsertEnv('USJNET_SSO_REDIRECT_URI', $redirectUri);
-        $this->upsertEnv('USJNET_SSO_FRONTEND_HOME_URL', $frontendHome);
-        $this->upsertEnv('CORS_ALLOWED_ORIGINS', $corsOrigins);
-        $scope = trim((string) config('usjnet-sso.scope', 'view-user'));
-        $this->upsertEnv('USJNET_SSO_SCOPE', $scope !== '' ? $scope : 'view-user');
-        $this->upsertEnv('USJNET_SSO_COOKIE_SECURE', $this->confirm('Use secure cookies (https only)?', false) ? 'true' : 'false');
-        $this->upsertEnv('USJNET_SSO_COOKIE_SAME_SITE', (string) $this->choice('Cookie SameSite', ['lax', 'none', 'strict'], 'lax'));
+        $envWritten = $this->upsertEnv('USJNET_SSO_REDIRECT_URI', $redirectUri) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_FRONTEND_HOME_URL', $frontendHome) || $envWritten;
+        $envWritten = $this->upsertEnv('CORS_ALLOWED_ORIGINS', $corsOrigins) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_SCOPE', $scope) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_SECURE', $cookieSecure) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_SAME_SITE', $cookieSameSite) || $envWritten;
         $this->ensureCorsConfigExists();
 
         $this->newLine();
-        $this->info('Environment values written to .env successfully.');
-        if ($style === 'single') {
-            $this->line('Single-app mode: USJNET_SSO_FRONTEND_HOME_URL set automatically to '.$frontendHome);
+        if ($envWritten) {
+            $this->info('Environment values written to .env successfully.');
+        } else {
+            $this->warn('No .env file at '.base_path('.env').' — nothing was saved. Create .env (copy from .env.example), paste the block below, then run: php artisan config:clear');
+            $this->newLine();
+            $suggestedLines = array_merge(
+                [
+                    'APP_URL' => $appUrl,
+                    'USJNET_SSO_BASE_URL' => $ssoBaseUrl,
+                    'USJNET_SSO_CLIENT_ID' => $clientId,
+                    'USJNET_SSO_CLIENT_SECRET' => $clientSecret,
+                    'USJNET_SSO_AUTH_USER_MODE' => $authMode,
+                ],
+                $authMode === 'system' && $systemUserModel !== null ? [
+                    'USJNET_SSO_SYSTEM_USER_MODEL' => $systemUserModel,
+                    'USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING' => $createSystemUserIfMissing ? 'true' : 'false',
+                ] : [],
+                $webMwAlias !== null && $webMwAlias !== '' ? ['USJNET_SSO_WEB_MIDDLEWARE_ALIAS' => $webMwAlias] : [],
+                [
+                    'USJNET_SSO_REDIRECT_URI' => $redirectUri,
+                    'USJNET_SSO_FRONTEND_HOME_URL' => $frontendHome,
+                    'CORS_ALLOWED_ORIGINS' => $corsOrigins,
+                    'USJNET_SSO_SCOPE' => $scope,
+                    'USJNET_SSO_COOKIE_SECURE' => $cookieSecure,
+                    'USJNET_SSO_COOKIE_SAME_SITE' => $cookieSameSite,
+                ]
+            );
+            $this->line($this->formatSuggestedEnvBlock($suggestedLines));
+            $this->newLine();
+            $this->comment('(USJNET_SSO_CLIENT_SECRET is shown because .env was missing — remove this block from logs after pasting.)');
         }
         $this->newLine();
         $this->info('Next steps (required):');
@@ -174,11 +217,11 @@ class InstallUsjnetSsoCommand extends Command
         return $answer;
     }
 
-    private function upsertEnv(string $key, string $value): void
+    private function upsertEnv(string $key, string $value): bool
     {
         $path = base_path('.env');
         if (! file_exists($path)) {
-            return;
+            return false;
         }
 
         $raw = (string) file_get_contents($path);
@@ -195,6 +238,21 @@ class InstallUsjnetSsoCommand extends Command
         }
 
         file_put_contents($path, $raw);
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, string>  $lines
+     */
+    private function formatSuggestedEnvBlock(array $lines): string
+    {
+        $parts = [];
+        foreach ($lines as $key => $value) {
+            $parts[] = $key.'='.$this->escapeEnvValue((string) $value);
+        }
+
+        return implode("\n", $parts);
     }
 
     private function escapeEnvValue(string $value): string

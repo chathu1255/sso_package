@@ -29,6 +29,10 @@ class EnsureSsoWebAuthenticated
             return $next($request);
         }
 
+        if ($this->isWebSsoExemptByConfiguredPaths($request)) {
+            return $next($request);
+        }
+
         $cookieName = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
         $token = $request->cookie($cookieName);
 
@@ -116,6 +120,50 @@ class EnsureSsoWebAuthenticated
         foreach ($paths as $allowed) {
             $allowed = trim((string) $allowed, '/');
             if ($allowed !== '' && $path === $allowed) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Local session areas: explicit prefixes and/or paths derived from configured local login URLs (see web_sso_local_login_paths).
+     */
+    private function isWebSsoExemptByConfiguredPaths(Request $request): bool
+    {
+        $path = trim((string) $request->path(), '/');
+
+        $loginPaths = config('usjnet-sso.web_sso_local_login_paths', []);
+        if (is_array($loginPaths)) {
+            foreach ($loginPaths as $loginPath) {
+                $loginPath = trim(str_replace('\\', '/', (string) $loginPath), '/');
+                if ($loginPath === '') {
+                    continue;
+                }
+                if ($path === $loginPath) {
+                    return true;
+                }
+                $parent = dirname($loginPath);
+                if ($parent !== '.' && $parent !== '/' && $parent !== '') {
+                    $parent = trim(str_replace('\\', '/', $parent), '/');
+                    if ($parent !== '' && ($path === $parent || str_starts_with($path, $parent.'/'))) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        $prefixes = config('usjnet-sso.web_sso_exempt_path_prefixes', []);
+        if (! is_array($prefixes)) {
+            return false;
+        }
+        foreach ($prefixes as $prefix) {
+            $prefix = trim((string) $prefix, '/');
+            if ($prefix === '') {
+                continue;
+            }
+            if ($path === $prefix || str_starts_with($path, $prefix.'/')) {
                 return true;
             }
         }

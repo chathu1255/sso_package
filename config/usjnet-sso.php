@@ -83,6 +83,34 @@ return [
     ],
 
     /**
+     * Path prefixes (no leading slash) for which EnsureSsoWebAuthenticated passes through without an SSO cookie
+     * or token validation — use for Laravel session login under e.g. admin/ (see README “Dual web login”).
+     * Comma-separated env, e.g. USJNET_SSO_WEB_EXEMPT_PREFIXES=admin
+     */
+    'web_sso_exempt_path_prefixes' => env('USJNET_SSO_WEB_EXEMPT_PREFIXES')
+        ? array_values(array_filter(array_map(
+            static fn (string $p): string => trim($p, '/'),
+            explode(',', (string) env('USJNET_SSO_WEB_EXEMPT_PREFIXES'))
+        )))
+        : [],
+
+    /**
+     * Local (non-SSO) login URLs: comma-separated paths without a leading slash, e.g. admin/login for /admin/login.
+     * EnsureSsoWebAuthenticated skips SSO for that exact path and for all URLs under its parent segment (admin, admin/dashboard, …).
+     * Use USJNET_SSO_WEB_EXEMPT_PREFIXES instead when you need a zone without a single “login” path.
+     */
+    'web_sso_local_login_paths' => env('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS')
+        ? array_values(array_filter(array_map(
+            static function (string $p): string {
+                $p = str_replace('\\', '/', $p);
+
+                return trim($p, '/');
+            },
+            explode(',', (string) env('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS'))
+        )))
+        : [],
+
+    /**
      * Guards that receive the authenticated user after SSO validation (GenericUser or Eloquent User in system mode).
      * Comma-separated in env, e.g. "web,sanctum". Null = default guard from config/auth.php plus "web" and "api" if defined.
      */
