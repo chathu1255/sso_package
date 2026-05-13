@@ -17,7 +17,7 @@ Laravel package for SSO login with:
   - `GET /oauth/authorize`
   - `POST /oauth/token`
   - `GET /api/user` (token introspection / profile)
-  - Logout: `POST /api/auth/logout` and/or `GET /api/user_logout` (both are called for compatibility)
+  - Logout: configurable **`USJNET_SSO_LOGOUT_POST_PATH`** (default `POST /api/logout_passort_user`) and optional **`USJNET_SSO_LOGOUT_GET_PATH`** (default `GET /api/user_logout`; set empty to skip). Both must revoke or invalidate the access token so **`USJNET_SSO_TOKEN_VALIDATION_PATH`** returns non-2xx afterward.
 
 ---
 
@@ -144,7 +144,7 @@ php artisan usjnet-sso:install
 php artisan usjnet-sso:doctor
 ```
 
-`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, **Auth user mode** (`sso` vs `system`), **optional `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`** (e.g. `auth`), **`USJNET_SSO_FRONTEND_HOME_URL`** (for `single`, default `{APP_URL}/home`; for `separate`, your SPA origin), then cookie/CORS keys into `.env`.
+`usjnet-sso:install` walks through **project style** (`separate` = SPA + API on different origins, `single` = one Laravel app), **OAuth client id/secret**, **Auth user mode** (`sso` vs `system`), **optional `USJNET_SSO_WEB_MIDDLEWARE_ALIAS`** (e.g. `auth`), **`USJNET_SSO_FRONTEND_HOME_URL`** (for `single`, default `{APP_URL}/home`; for `separate`, your SPA origin), then cookie/CORS keys into `.env`. It also writes **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true`** so **`sso.web.live`** runs on the global **`web`** stack by default (set **`false`** if you must skip IdP checks on every page).
 
 - Use a **real terminal** (TTY). With **`--no-interaction`** or some IDE runners, Laravel skips prompts: auth mode defaults to **`sso`** and a **warning** is shown — set **`USJNET_SSO_AUTH_USER_MODE`** in `.env` or run `php artisan usjnet-sso:install --auth-mode=system`. The web middleware alias question is skipped unless you pass **`--web-middleware-alias=auth`** (or another valid name).
 - **No `.env` file** (e.g. API project not copied from `.env.example` yet): the installer **does not write** anything; it **warns** and prints a **copy-paste block** of the variables you just entered. Create `.env`, paste (or run install again), then `php artisan config:clear`.
@@ -300,6 +300,23 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
 
 Prefix **`api`** is configurable (`USJNET_SSO_API_ROUTE_PREFIX`).
 
+### Single logout (one place in your app)
+
+After install, use **one** endpoint on **this** Laravel app (the consumer), not a different URL per client:
+
+| Action | Call |
+|--------|------|
+| **Logout everywhere (SSO + local cookies + session)** | **`POST {APP_URL}/api/auth/user_logout`** |
+
+- Send the same auth you use for **`/api/auth/me`**: **`Authorization: Bearer …`** and/or **cookies** with **`credentials: 'include'`** (SPA).
+- The package clears local session, clears SSO HttpOnly cookies, then calls your SSO server:
+  - **`POST {USJNET_SSO_BASE_URL}{USJNET_SSO_LOGOUT_POST_PATH}`** (default `/api/logout_passort_user`) with the access token
+  - Optionally **`GET {USJNET_SSO_BASE_URL}{USJNET_SSO_LOGOUT_GET_PATH}`** (default `/api/user_logout`; set **`USJNET_SSO_LOGOUT_GET_PATH=`** empty in `.env` to disable)
+
+**On the SSO server**, those routes must **revoke the OAuth access token** (or otherwise invalidate it). If they only clear a web session but leave the bearer token valid, **`GET /api/user`** will still return **200** and this app will still treat the user as logged in until the token expires.
+
+Passport-style **`POST /api/auth/logout`**: set **`USJNET_SSO_LOGOUT_POST_PATH=/api/auth/logout`** in `.env`.
+
 ---
 
 ## 8. Frontend
@@ -367,6 +384,34 @@ USJNET_SSO_WEB_EXEMPT_PREFIXES=admin
 ```
 
 If **`sso.web`** is attached only to **SSO-backed route groups**, you can omit these keys and register **`/admin/*`** outside those groups instead.
+
+### Local admin logged in → skip SSO on **every** path
+
+Path exemptions above only affect URLs under **`/admin/*`**. To skip **`sso.web`**, **`sso.web.live`**, and **`sso.token`** on **all routes** while the user is in a **local admin session** (after **`/admin/login`**):
+
+**Option A — dedicated guard (recommended)**  
+Use the same guard as `auth:admin` (must match `config/auth.php`):
+
+```env
+USJNET_SSO_SKIP_WEB_CHECKS_GUARD=admin
+```
+
+While **`Auth::guard('admin')->check()`** is true, SSO middleware does nothing (any URL). Logging out the admin guard restores SSO checks.
+
+**Option B — session flag**  
+```env
+USJNET_SSO_SKIP_WEB_CHECKS_SESSION_KEY=usjnet_local_admin
+```
+
+After successful admin login:
+
+```php
+$request->session()->put(config('usjnet-sso.skip_sso_web_checks_when_session_key'), true);
+```
+
+Clear that key (or flush session) on admin logout.
+
+If both env vars are set, bypass applies when **either** condition is true.
 
 ## 11. Avoid duplicate routes
 

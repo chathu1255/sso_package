@@ -38,6 +38,16 @@ return [
     'access_token_validation_path' => env('USJNET_SSO_TOKEN_VALIDATION_PATH', '/api/user'),
 
     /**
+     * Remote logout on the SSO server (called from this app’s POST /api/auth/user_logout and on invalid-token cleanup).
+     * POST must revoke the Bearer access token (or session) so GET access_token_validation_path returns non-2xx afterward.
+     * Default matches USJNet SSO `/api/logout_passort_user`; set USJNET_SSO_LOGOUT_POST_PATH=/api/auth/logout for generic Passport.
+     */
+    'sso_logout_post_path' => env('USJNET_SSO_LOGOUT_POST_PATH', '/api/logout_passort_user'),
+
+    /** Optional second logout call (GET). Empty string = skip. */
+    'sso_logout_get_path' => trim((string) env('USJNET_SSO_LOGOUT_GET_PATH', '/api/user_logout')) ?: null,
+
+    /**
      * When the access token is dead on web routes: "oauth" = redirect to /sso/spa/redirect (default),
      * "frontend" = redirect to USJNET_SSO_FRONTEND_HOME_URL with ?login_error=session_expired (SPA login page).
      */
@@ -121,6 +131,19 @@ return [
             explode(',', (string) env('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS'))
         )))
         : [],
+
+    /**
+     * Optional: skip SSO web checks on ALL routes while this guard is authenticated (e.g. admin after /admin/login).
+     * Example: USJNET_SSO_SKIP_WEB_CHECKS_GUARD=admin — use the same guard name as Route::middleware('auth:admin').
+     */
+    'skip_sso_web_checks_when_guard' => (($g = trim((string) env('USJNET_SSO_SKIP_WEB_CHECKS_GUARD', ''))) !== '') ? $g : null,
+
+    /**
+     * Optional: skip SSO web checks on ALL routes while session key is truthy. Set in your admin LoginController after login.
+     * Example: USJNET_SSO_SKIP_WEB_CHECKS_SESSION_KEY=usjnet_local_admin then session(['usjnet_local_admin' => true]).
+     * Clear the key (or session) on admin logout.
+     */
+    'skip_sso_web_checks_when_session_key' => (($k = trim((string) env('USJNET_SSO_SKIP_WEB_CHECKS_SESSION_KEY', ''))) !== '') ? $k : null,
 
     /**
      * Guards that receive the authenticated user after SSO validation (GenericUser or Eloquent User in system mode).

@@ -100,18 +100,35 @@ class SsoAuthService
             $request = $request->withToken($token);
         }
 
-        $passportLogout = $request->post('/api/auth/logout');
-        $legacyLogout = $request->get('/api/user_logout');
+        $postPath = trim((string) config('usjnet-sso.sso_logout_post_path', '/api/logout_passort_user'));
+        if ($postPath === '' || ! str_starts_with($postPath, '/') || str_contains($postPath, '..')) {
+            $postPath = '/api/logout_passort_user';
+        }
 
-        $hasSuccess = $passportLogout->successful() || $legacyLogout->successful();
+        $passportLogout = $request->post($postPath);
+
+        $getPath = config('usjnet-sso.sso_logout_get_path');
+        $getPath = is_string($getPath) ? trim($getPath) : '';
+        if ($getPath !== '' && (! str_starts_with($getPath, '/') || str_contains($getPath, '..'))) {
+            $getPath = '';
+        }
+        $legacyLogout = $getPath !== ''
+            ? $request->get($getPath)
+            : null;
+
+        $hasSuccess = $passportLogout->successful() || ($legacyLogout !== null && $legacyLogout->successful());
 
         if (! $hasSuccess) {
+            $status = $passportLogout->status() ?: ($legacyLogout !== null ? $legacyLogout->status() : 0) ?: 500;
+
             throw new HttpException(
-                $passportLogout->status() ?: $legacyLogout->status(),
+                $status,
                 Arr::get(
                     $passportLogout->json(),
                     'message',
-                    Arr::get($legacyLogout->json(), 'message', 'Unable to logout from SSO.')
+                    $legacyLogout !== null
+                        ? Arr::get($legacyLogout->json(), 'message', 'Unable to logout from SSO.')
+                        : 'Unable to logout from SSO.'
                 )
             );
         }
@@ -120,11 +137,13 @@ class SsoAuthService
             'status' => $hasSuccess ? 200 : 500,
             'body' => [
                 'passport_logout' => [
+                    'path' => $postPath,
                     'status' => $passportLogout->status(),
                     'successful' => $passportLogout->successful(),
                     'response' => $passportLogout->json() ?: $passportLogout->body(),
                 ],
-                'legacy_logout' => [
+                'legacy_logout' => $legacyLogout === null ? null : [
+                    'path' => $getPath,
                     'status' => $legacyLogout->status(),
                     'successful' => $legacyLogout->successful(),
                     'response' => $legacyLogout->json() ?: $legacyLogout->body(),
