@@ -56,8 +56,9 @@ class SsoAuthService
             ->withToken($token)
             ->withHeaders([
                 'Accept' => 'application/json',
-                'Cache-Control' => 'no-cache',
+                'Cache-Control' => 'no-cache, no-store',
                 'Pragma' => 'no-cache',
+                'Expires' => '0',
             ])
             ->get($path);
 

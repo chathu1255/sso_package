@@ -12,7 +12,12 @@ Route::prefix('auth')->group(function (): void {
     Route::post('bootstrap', [SsoAuthApiController::class, 'bootstrap']);
     Route::post('exchange-code', [SsoAuthApiController::class, 'exchangeCode']);
     Route::post('refresh', [SsoAuthApiController::class, 'refresh']);
-    Route::post('user_logout', [SsoAuthApiController::class, 'userLogout']);
+
+    $logoutRoute = Route::post('user_logout', [SsoAuthApiController::class, 'userLogout']);
+    $logoutMw = config('usjnet-sso.api_user_logout_middleware', []);
+    if (is_array($logoutMw) && $logoutMw !== []) {
+        $logoutRoute->middleware($logoutMw);
+    }
     Route::middleware('sso.token')->get('me', [SsoAuthApiController::class, 'me']);
     Route::middleware('sso.token')->get('whoami', function (Request $request) {
         return response()->json([

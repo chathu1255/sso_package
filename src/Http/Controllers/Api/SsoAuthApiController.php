@@ -249,7 +249,7 @@ class SsoAuthApiController extends Controller
         return null;
     }
 
-    public function userLogout(Request $request): JsonResponse
+    public function userLogout(Request $request): Response
     {
         $accessCookie = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
         $accessToken = $request->bearerToken() ?? $request->cookie($accessCookie);
@@ -264,40 +264,69 @@ class SsoAuthApiController extends Controller
             $localStatus['session_invalidated'] = true;
         }
 
-        $user = Auth::guard('api')->user();
-        if ($user && method_exists($user, 'token') && $user->token()) {
-            $user->token()->revoke();
-            $localStatus['token_revoked'] = true;
+        if ($this->authGuardExists('api')) {
+            $user = Auth::guard('api')->user();
+            if ($user && method_exists($user, 'token') && $user->token()) {
+                $user->token()->revoke();
+                $localStatus['token_revoked'] = true;
+            }
         }
+
+        $logoutFailed = false;
+        $remoteMessage = null;
+        $logoutResult = null;
 
         try {
             $logoutResult = $this->authService->logoutUser($accessToken);
+        } catch (Throwable $exception) {
+            $logoutFailed = true;
+            $remoteMessage = $exception->getMessage();
+        }
 
-            return $this->withoutSsoCookies(response()->json([
+        if ($request->expectsJson()) {
+            if ($logoutFailed) {
+                return $this->withoutSsoAndLegacyCookies(response()->json([
+                    'message' => 'Unable to logout from SSO.',
+                    'backend_status' => $localStatus,
+                    'error' => $remoteMessage,
+                ], 500));
+            }
+
+            return $this->withoutSsoAndLegacyCookies(response()->json([
                 'message' => 'User logged out successfully.',
                 'backend_status' => $localStatus,
                 'sso_status' => $logoutResult['status'],
                 'sso_response' => $logoutResult['body'],
-            ], 200))
-                ->withoutCookie('accessToken')
-                ->withoutCookie('privilages')
-                ->withoutCookie('userState')
-                ->withoutCookie('userStatus')
-                ->withoutCookie('sjpEmail')
-                ->withoutCookie('empNo');
-        } catch (Throwable $exception) {
-            return $this->withoutSsoCookies(response()->json([
-                'message' => 'Unable to logout from SSO.',
-                'backend_status' => $localStatus,
-                'error' => $exception->getMessage(),
-            ], 500))
-                ->withoutCookie('accessToken')
-                ->withoutCookie('privilages')
-                ->withoutCookie('userState')
-                ->withoutCookie('userStatus')
-                ->withoutCookie('sjpEmail')
-                ->withoutCookie('empNo');
+            ], 200));
         }
+
+        $query = [
+            'state' => (string) Str::uuid(),
+            'prompt_login' => '1',
+        ];
+        if ($logoutFailed) {
+            $query['logout_error'] = 'sso_remote_failed';
+            if ($remoteMessage !== null && $remoteMessage !== '') {
+                $query['logout_error_description'] = $remoteMessage;
+            }
+        }
+
+        return $this->withoutSsoAndLegacyCookies(
+            redirect()->to('/sso/spa/redirect?'.http_build_query($query))
+        );
+    }
+
+    private function withoutSsoAndLegacyCookies(Response $response): Response
+    {
+        $r = $this->withoutSsoCookies($response);
+        $path = (string) config('usjnet-sso.cookie_path', '/');
+        $domain = config('usjnet-sso.cookie_domain');
+
+        foreach (['accessToken', 'privilages', 'userState', 'userStatus', 'sjpEmail', 'empNo'] as $cookieName) {
+            $r = $r->withoutCookie($cookieName, $path, $domain);
+        }
+
+        return $r;
     }
 
     private function withSsoHttpOnlyCookies(JsonResponse $response, SsoToken $token): JsonResponse
@@ -325,9 +354,18 @@ class SsoAuthApiController extends Controller
     {
         $accessName = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
         $refreshName = (string) config('usjnet-sso.refresh_token_cookie', 'sso_refresh_token');
+        $path = (string) config('usjnet-sso.cookie_path', '/');
+        $domain = config('usjnet-sso.cookie_domain');
 
         return $response
-            ->withoutCookie($accessName)
-            ->withoutCookie($refreshName);
+            ->withoutCookie($accessName, $path, $domain)
+            ->withoutCookie($refreshName, $path, $domain);
+    }
+
+    private function authGuardExists(string $name): bool
+    {
+        $guards = config('auth.guards', []);
+
+        return is_array($guards) && array_key_exists($name, $guards);
     }
 }

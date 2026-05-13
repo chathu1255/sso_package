@@ -65,6 +65,23 @@ return [
 
     'cookie_same_site' => env('USJNET_SSO_COOKIE_SAME_SITE', env('SSO_COOKIE_SAME_SITE', 'lax')),
 
+    /** Path/domain for clearing SSO cookies (must match how cookies were set). Session domain if cookies were host-only null. */
+    'cookie_path' => ($p = trim((string) env('USJNET_SSO_COOKIE_PATH', '/'))) !== '' ? $p : '/',
+
+    'cookie_domain' => (($d = trim((string) env('USJNET_SSO_COOKIE_DOMAIN', ''))) !== '') ? $d : null,
+
+    /**
+     * Run StartSession on POST user_logout so Laravel session is invalidated (single-app Blade logout).
+     * Disable if your stack cannot read the session cookie on api routes (e.g. encrypted session without matching middleware).
+     */
+    'api_user_logout_middleware' => filter_var(
+        env('USJNET_SSO_USER_LOGOUT_USE_SESSION', true),
+        FILTER_VALIDATE_BOOL,
+        FILTER_NULL_ON_FAILURE
+    ) ?? true
+        ? [\Illuminate\Session\Middleware\StartSession::class]
+        : [],
+
     /** Prefix for bootstrap cache keys (legacy SPA callback). */
     'bootstrap_cache_prefix' => env('USJNET_SSO_BOOTSTRAP_CACHE_PREFIX', 'usjnet_sso_bootstrap:'),
 

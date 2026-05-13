@@ -231,6 +231,18 @@ If **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP`** is **true** (default in package con
 
 You may also attach the middleware manually: **`Route::middleware('sso.web.live')`** (do not duplicate if it is already pushed onto `web`).
 
+### Logout in another program — why this app might still look logged in
+
+This package **cannot see** other apps’ sessions. It only learns the SSO token is dead when it **calls your IdP** with the access token (same as **`USJNET_SSO_TOKEN_VALIDATION_PATH`**, usually **`GET /api/user`**).
+
+1. **Turn on live checks:** **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true`** (default). Run **`php artisan usjnet-sso:doctor`** — you should see **`[PASS] Live SSO check … on the web stack`**. If **`[FAIL]`** or **`[WARN] disabled`**, fix `.env` and **`php artisan config:clear`** (and **`config:cache`** rebuild in production).
+
+2. **Full page loads:** Live middleware runs on Laravel **`web`** routes. A **browser refresh** or **link navigation** triggers it. **Client-side SPA routing** without a server round-trip does **not** — call **`GET /api/auth/me`** (with **`sso.token`**) on an interval or before guarded views.
+
+3. **IdP must reject dead tokens:** If the other app logs out but **`GET {USJNET_SSO_BASE_URL}{USJNET_SSO_TOKEN_VALIDATION_PATH}`** still returns **200** with the same Bearer token, this app will still treat the user as valid until JWT expiry. Fix token **revocation / introspection** on the SSO server.
+
+4. **Bypass flags:** **`USJNET_SSO_SKIP_WEB_CHECKS_GUARD`** / **`SESSION_KEY`** or **`USJNET_SSO_WEB_EXEMPT_PREFIXES`** disable checks — doctor prints a **WARN** when skip guards are set.
+
 ### Invalid-session cleanup
 
 Both middleware paths now enforce hard cleanup on invalid/expired sessions:
@@ -308,6 +320,8 @@ After install, use **one** endpoint on **this** Laravel app (the consumer), not 
 |--------|------|
 | **Logout everywhere (SSO + local cookies + session)** | **`POST {APP_URL}/api/auth/user_logout`** |
 
+- **Browser / Blade form** (request does **not** “expect JSON”): response is a **302 redirect** to **`/sso/spa/redirect`** with **`prompt_login=1`** so the user lands on the SSO login flow. Remote SSO failure still redirects, with **`logout_error`** query params when applicable.
+- **`fetch` / axios** (typically **`Accept: application/json`**): response stays **JSON** (success or error body).
 - Send the same auth you use for **`/api/auth/me`**: **`Authorization: Bearer …`** and/or **cookies** with **`credentials: 'include'`** (SPA).
 - The package clears local session, clears SSO HttpOnly cookies, then calls your SSO server:
   - **`POST {USJNET_SSO_BASE_URL}{USJNET_SSO_LOGOUT_POST_PATH}`** (default `/api/logout_passort_user`) with the access token
@@ -428,11 +442,13 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | `invalid_state` | Same tab session; one redirect from SPA; `APP_URL` matches cookie domain |
 | `invalid_grant` | `USJNET_SSO_REDIRECT_URI` matches SSO registration and token exchange |
 | 401 on `/api/auth/me` | `Authorization: Bearer` or HttpOnly cookie; `withCredentials` on SPA |
+| **`Auth guard [api] is not defined`** on **`POST /api/auth/user_logout`** | Fixed in package: Passport revoke runs only if **`api`** exists in **`config/auth.php`**. Minimal/single apps often omit it — logout still clears session + SSO cookies + remote SSO. To revoke local Passport tokens too, define the **`api`** guard (Laravel Breeze/API or Passport install). |
+| **`session_invalidated`: false** after logout | **`POST /api/auth/user_logout`** runs **`StartSession`** when **`USJNET_SSO_USER_LOGOUT_USE_SESSION=true`** (default). Set **`false`** only if session startup breaks your stack. Clear **`USJNET_SSO_COOKIE_PATH`** / **`USJNET_SSO_COOKIE_DOMAIN`** if cookie deletion fails (must match how cookies were set). |
 | Package not loading | `composer dump-autoload`; clear config cache |
 | Installer said success but `.env` has no SSO keys | Older behaviour: if **`.env` is missing**, the installer now **warns** and prints a block instead of claiming success. Create `.env` and paste or re-run. |
 | SSO doctor fails “not configured” on API | Add **`USJNET_SSO_*`** (and **`CORS_ALLOWED_ORIGINS`**) to that app’s **`.env`**, or merge from the installer output — empty env means null config and broken OAuth until keys exist. |
 | 301/302 loop / “too many redirects” | Do not require an access cookie on OAuth routes: this package skips **`sso/spa/redirect`** and **`sso/spa/callback`** inside `sso.web`. If you customized paths, set **`web_sso_public_paths`** in `config/usjnet-sso.php`. Prefer attaching **`sso.web` only to protected route groups**, not the entire `web` stack. |
-| Still “logged in” here after SSO logout elsewhere | Ensure **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true`** (default) so **`sso.web.live`** runs on the **`web`** stack; use **`sso.token`** on **`api`** routes. If the IdP still returns **200** for **`USJNET_SSO_TOKEN_VALIDATION_PATH`** until JWT expiry, shorten access-token TTL or use an endpoint that reflects revocation. |
+| Still “logged in” here after SSO logout elsewhere | Run **`php artisan usjnet-sso:doctor`** — confirm **`[PASS] Live SSO check`** and **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true`**, then **`php artisan config:clear`**. Use **`sso.token`** on **`api`** routes used by the SPA. If the IdP still returns **200** on **`USJNET_SSO_TOKEN_VALIDATION_PATH`** for that token, fix revocation on the SSO server (not fixable only in this package). |
 | 403 `no_local_account` (system mode) | SSO email must match a row in `users` (or set `USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING=true` to auto-provision). |
 | Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
 | Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |

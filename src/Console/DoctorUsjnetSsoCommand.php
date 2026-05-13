@@ -4,7 +4,9 @@ namespace Usjnet\Sso\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Route;
+use Usjnet\Sso\Http\Middleware\VerifySsoAccessTokenLive;
 
 class DoctorUsjnetSsoCommand extends Command
 {
@@ -67,11 +69,26 @@ class DoctorUsjnetSsoCommand extends Command
         $originsList = is_array($origins) ? implode(', ', $origins) : (string) $origins;
         $this->check('CORS allowed_origins configured', $originsList !== '', $originsList);
 
-        $verifyLive = config('usjnet-sso.verify_sso_access_token_on_web_middleware_group') === true;
-        $this->line(sprintf(
-            '[INFO] SSO cookie re-verification on `web` stack: %s (USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP)',
-            $verifyLive ? 'enabled' : 'disabled'
-        ));
+        $verifyLiveConfig = config('usjnet-sso.verify_sso_access_token_on_web_middleware_group') === true;
+        /** @var Router $router */
+        $router = app('router');
+        $webGroup = $router->getMiddlewareGroups()['web'] ?? [];
+        $liveRegistered = $this->webGroupContainsMiddleware($webGroup, VerifySsoAccessTokenLive::class);
+
+        if ($verifyLiveConfig && ! $liveRegistered) {
+            $this->line('<fg=red>[FAIL] VerifySsoAccessTokenLive is missing from the `web` middleware group</> -> run php artisan config:clear; ensure UsjnetSsoServiceProvider loads before routes.');
+            $this->hasFailures = true;
+        } elseif ($verifyLiveConfig && $liveRegistered) {
+            $this->line('<fg=green>[PASS] Live SSO check (`sso.web.live`) is on the `web` stack</> — refresh/navigation re-validates the access cookie with the IdP.');
+        } else {
+            $this->line('<fg=yellow>[WARN] USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP is disabled</> — logging out in another app may not show here until token expiry; set true for automatic logout on next full page load.');
+        }
+
+        $skipGuard = config('usjnet-sso.skip_sso_web_checks_when_guard');
+        $skipSession = config('usjnet-sso.skip_sso_web_checks_when_session_key');
+        if ((is_string($skipGuard) && $skipGuard !== '') || (is_string($skipSession) && $skipSession !== '')) {
+            $this->line('<fg=yellow>[WARN] Local-login bypass is active</> (SKIP_WEB_CHECKS_GUARD / SESSION_KEY) — SSO live checks are skipped while that guard/session is true.');
+        }
 
         $this->newLine();
         if ($this->hasFailures) {
@@ -105,6 +122,25 @@ class DoctorUsjnetSsoCommand extends Command
         foreach (Route::getRoutes() as $route) {
             if (trim($route->uri(), '/') === trim($path, '/')) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, mixed>  $webGroup
+     */
+    private function webGroupContainsMiddleware(array $webGroup, string $middlewareClass): bool
+    {
+        foreach ($webGroup as $entry) {
+            if ($entry === $middlewareClass) {
+                return true;
+            }
+            if (is_array($entry)) {
+                if ($this->webGroupContainsMiddleware($entry, $middlewareClass)) {
+                    return true;
+                }
             }
         }
 
