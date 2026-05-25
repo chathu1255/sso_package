@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use Usjnet\Sso\SsoAuthService;
+use Usjnet\Sso\Support\LocalLoginZone;
 
 trait HandlesSsoLogout
 {
@@ -25,12 +26,35 @@ trait HandlesSsoLogout
     }
 
     /**
+     * Invalid/expired SSO token: keep local admin (or other bypass guard) session; only clear SSO cookies and SSO guards.
+     */
+    protected function handleInvalidSsoTokenForWeb(Request $request, SsoAuthService $ssoAuthService, Response $invalidResponse, ?callable $continue = null): Response
+    {
+        $this->performSsoLogoutSafely($request, $ssoAuthService);
+
+        if (LocalLoginZone::hasActiveLocalGuardSession($request)) {
+            $response = $continue !== null ? $continue() : $invalidResponse;
+
+            return $this->clearAuthCookies($response);
+        }
+
+        $this->purgeLocalAuthentication($request);
+
+        return $this->clearAuthCookies($invalidResponse);
+    }
+
+    /**
      * Clear Laravel auth state (including Eloquent "system" users) and the session.
      */
     protected function purgeLocalAuthentication(Request $request): void
     {
+        $preserveGuards = array_flip(LocalLoginZone::bypassGuards());
+
         foreach (array_keys(config('auth.guards', [])) as $guardName) {
             if (! is_string($guardName) || $guardName === '') {
+                continue;
+            }
+            if (isset($preserveGuards[$guardName])) {
                 continue;
             }
             try {

@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Route;
 use Usjnet\Sso\Http\Middleware\VerifySsoAccessTokenLive;
+use Usjnet\Sso\Support\LocalLoginZone;
 
 class DoctorUsjnetSsoCommand extends Command
 {
@@ -84,10 +85,34 @@ class DoctorUsjnetSsoCommand extends Command
             $this->line('<fg=yellow>[WARN] USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP is disabled</> — logging out in another app may not show here until token expiry; set true for automatic logout on next full page load.');
         }
 
-        $skipGuard = config('usjnet-sso.skip_sso_web_checks_when_guard');
-        $skipSession = config('usjnet-sso.skip_sso_web_checks_when_session_key');
-        if ((is_string($skipGuard) && $skipGuard !== '') || (is_string($skipSession) && $skipSession !== '')) {
-            $this->line('<fg=yellow>[WARN] Local-login bypass is active</> (SKIP_WEB_CHECKS_GUARD / SESSION_KEY) — SSO live checks are skipped while that guard/session is true.');
+        $localPathsList = implode(', ', LocalLoginZone::loginPaths());
+        if ($localPathsList !== '') {
+            $this->line('<fg=green>[PASS] Local login:</> entry paths='.$localPathsList.'; guards='.implode(', ', LocalLoginZone::bypassGuards()).' (when guard is logged in, SSO is skipped on ALL app paths).');
+            $this->line('<fg=yellow>[INFO] Protected admin pages still need auth:admin. Login entry paths only skip SSO for guests.</>');
+            $autoRegistered = LocalLoginZone::autoRegisteredGuards();
+            if ($autoRegistered !== []) {
+                $provider = (string) config('auth.guards.'.$autoRegistered[0].'.provider', 'users');
+                $this->line('<fg=green>[PASS] Auto-registered local login guard(s):</> '.implode(', ', $autoRegistered).' (provider: '.$provider.', session driver). Add to config/auth.php to persist.');
+            }
+
+            foreach (LocalLoginZone::bypassGuards() as $guardName) {
+                if (! array_key_exists($guardName, config('auth.guards', []))) {
+                    $this->line('<fg=red>[FAIL] Local login guard "'.$guardName.'" is missing</> — enable USJNET_SSO_AUTO_REGISTER_LOCAL_LOGIN_GUARDS=true or add the guard to config/auth.php.');
+                    $this->hasFailures = true;
+                    $this->printMissingGuardHint($guardName);
+                }
+            }
+            $exempt = (string) env('USJNET_SSO_WEB_EXEMPT_PREFIXES', '');
+            if (preg_match('/(?:^|,)\s*admin\s*(?:,|$)/', $exempt) === 1) {
+                $this->line('<fg=yellow>[WARN] USJNET_SSO_WEB_EXEMPT_PREFIXES includes "admin"</> — remove it unless you need guest-only URLs; use LOCAL_LOGIN_GUARDS after login instead.');
+            }
+        } else {
+            $this->line('<fg=yellow>[WARN] Local login zone disabled</> (USJNET_SSO_WEB_LOCAL_LOGIN_PATHS empty).');
+        }
+
+        $webAlias = (string) config('usjnet-sso.web_middleware_alias', '');
+        if ($webAlias === 'auth') {
+            $this->line('<fg=yellow>[WARN] USJNET_SSO_WEB_MIDDLEWARE_ALIAS=auth</> — admin routes must use middleware("auth:admin"), never middleware("auth") alone.');
         }
 
         $this->newLine();
@@ -115,6 +140,20 @@ class DoctorUsjnetSsoCommand extends Command
 
         $this->line('<fg=red>'.$line.'</>');
         $this->hasFailures = true;
+    }
+
+    private function printMissingGuardHint(string $guardName): void
+    {
+        $provider = config('auth.guards.web.provider', 'users');
+        if (! is_string($provider) || $provider === '') {
+            $provider = 'users';
+        }
+
+        $this->newLine();
+        $this->line('<fg=cyan>Add to config/auth.php guards array (adjust provider if needed):</>');
+        $this->line("    '{$guardName}' => ['driver' => 'session', 'provider' => '{$provider}'],");
+        $this->line('<fg=cyan>Or set USJNET_SSO_LOCAL_LOGIN_GUARDS</> to a guard that already exists (e.g. web).');
+        $this->newLine();
     }
 
     private function routePathExists(string $path): bool

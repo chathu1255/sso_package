@@ -383,49 +383,59 @@ Rule:
 
 ### Dual web login: SSO and local session (e.g. `/admin/login`)
 
-**Preferred:** point at your **local login route** (no leading slash). SSO middleware skips that URL and every path **under the same parent** as that login page — so `/admin/login` also exempts `/admin`, `/admin/dashboard`, etc.
+Local admin login must work **separately** from SSO. Set **both** env keys (installer can write them):
 
 ```env
 USJNET_SSO_WEB_LOCAL_LOGIN_PATHS=admin/login
+USJNET_SSO_LOCAL_LOGIN_GUARDS=admin
 ```
 
-Comma-separate multiple logins (`admin/login,staff/login`). SSO-backed routes elsewhere still require a valid SSO cookie as usual.
+| What it does | |
+|--------------|--|
+| **`WEB_LOCAL_LOGIN_PATHS`** | Guests only: no SSO redirect on the login form URL(s), e.g. **`/admin/login`** (not the whole **`/admin/*`** tree). |
+| **`LOCAL_LOGIN_GUARDS`** | After login: while **`Auth::guard('admin')->check()`** is true, **no SSO check on any route** in the app. |
 
-**Alternative:** exempt a URL prefix without naming a login path:
+If **`LOCAL_LOGIN_GUARDS`** is empty but **`admin`** exists in `config/auth.php`, the package **auto-infers** `admin` from `admin/login`.
 
-```env
-USJNET_SSO_WEB_EXEMPT_PREFIXES=admin
-```
-
-If **`sso.web`** is attached only to **SSO-backed route groups**, you can omit these keys and register **`/admin/*`** outside those groups instead.
-
-### Local admin logged in → skip SSO on **every** path
-
-Path exemptions above only affect URLs under **`/admin/*`**. To skip **`sso.web`**, **`sso.web.live`**, and **`sso.token`** on **all routes** while the user is in a **local admin session** (after **`/admin/login`**):
-
-**Option A — dedicated guard (recommended)**  
-Use the same guard as `auth:admin` (must match `config/auth.php`):
-
-```env
-USJNET_SSO_SKIP_WEB_CHECKS_GUARD=admin
-```
-
-While **`Auth::guard('admin')->check()`** is true, SSO middleware does nothing (any URL). Logging out the admin guard restores SSO checks.
-
-**Option B — session flag**  
-```env
-USJNET_SSO_SKIP_WEB_CHECKS_SESSION_KEY=usjnet_local_admin
-```
-
-After successful admin login:
+**Critical — routes in your app:**
 
 ```php
-$request->session()->put(config('usjnet-sso.skip_sso_web_checks_when_session_key'), true);
+// Local admin (NOT the SSO middleware alias)
+Route::middleware('guest:admin')->group(function () {
+    Route::get('login', ...); // → /admin/login if prefix admin
+});
+Route::middleware('auth:admin')->prefix('admin')->group(function () {
+    // dashboard, etc.
+});
+
+// SSO users (separate)
+Route::middleware('sso.web')->group(function () {
+    // or middleware('auth') only if USJNET_SSO_WEB_MIDDLEWARE_ALIAS=auth
+});
 ```
 
-Clear that key (or flush session) on admin logout.
+Do **not** put **`middleware('auth')`** on admin routes when **`auth`** is aliased to **`sso.web`** — use **`auth:admin`** only.
 
-If both env vars are set, bypass applies when **either** condition is true.
+**`admin` guard in `config/auth.php`** (required if you use `USJNET_SSO_LOCAL_LOGIN_GUARDS=admin`):
+
+```php
+'guards' => [
+    'admin' => [
+        'driver' => 'session',
+        'provider' => 'users', // or a dedicated admins provider / Admin model
+    ],
+],
+```
+
+By default **`USJNET_SSO_AUTO_REGISTER_LOCAL_LOGIN_GUARDS=true`** registers a missing guard at boot (e.g. **`admin`** → session + **`users`** provider). Doctor shows **`[PASS] Auto-registered`**. For production, copy that guard into **`config/auth.php`**. Set **`AUTO_REGISTER_LOCAL_LOGIN_GUARDS=false`** to require manual config. If you only use **`web`**, set **`USJNET_SSO_LOCAL_LOGIN_GUARDS=web`** instead.
+
+**Optional guest-only paths** (e.g. password reset before login; does not exempt protected admin pages):
+
+```env
+USJNET_SSO_WEB_EXEMPT_PREFIXES=admin/password/reset
+```
+
+**Session flag (optional):** `USJNET_SSO_SKIP_WEB_CHECKS_SESSION_KEY=usjnet_local_admin` set in your LoginController after login.
 
 ## 11. Avoid duplicate routes
 
@@ -449,6 +459,7 @@ If you already defined `/sso/spa/*` or `/api/auth/*` in your app, remove the dup
 | SSO doctor fails “not configured” on API | Add **`USJNET_SSO_*`** (and **`CORS_ALLOWED_ORIGINS`**) to that app’s **`.env`**, or merge from the installer output — empty env means null config and broken OAuth until keys exist. |
 | 301/302 loop / “too many redirects” | Do not require an access cookie on OAuth routes: this package skips **`sso/spa/redirect`** and **`sso/spa/callback`** inside `sso.web`. If you customized paths, set **`web_sso_public_paths`** in `config/usjnet-sso.php`. Prefer attaching **`sso.web` only to protected route groups**, not the entire `web` stack. |
 | Still “logged in” here after SSO logout elsewhere | Run **`php artisan usjnet-sso:doctor`** — confirm **`[PASS] Live SSO check`** and **`USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true`**, then **`php artisan config:clear`**. Use **`sso.token`** on **`api`** routes used by the SPA. If the IdP still returns **200** on **`USJNET_SSO_TOKEN_VALIDATION_PATH`** for that token, fix revocation on the SSO server (not fixable only in this package). |
+| **Admin login succeeds then back to `/admin/login`** | Run **`composer update usjnet/laravel-sso`** then **`php artisan config:clear`** and **`php artisan usjnet-sso:doctor`**. Set **`USJNET_SSO_LOCAL_LOGIN_GUARDS=admin`** (must match **`auth:admin`** in routes). Login must use **`Auth::guard('admin')->attempt(...)`** (not default **`web`**). A **stale `sso_access_token` cookie** used to wipe the whole session on the next request — current package only clears SSO cookies when the admin guard is active. Remove **`USJNET_SSO_WEB_EXEMPT_PREFIXES=admin`** unless you need guest-only URLs. |
 | 403 `no_local_account` (system mode) | SSO email must match a row in `users` (or set `USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING=true` to auto-provision). |
 | Composer: `laravel/pint` needs PHP ^8.2 | In your **app** `composer.json`, cap Pint to the last PHP 8.1–compatible line, e.g. `"laravel/pint": "^1.18.3 <1.21"` (1.21+ requires PHP 8.2), then `composer update laravel/pint -W` |
 | Composer: `dragonmantank/cron-expression` needs PHP ^8.2 | In your **app** `composer.json`, add `"dragonmantank/cron-expression": "^3.3.2,<3.6"` (3.6+ requires PHP 8.2), then `composer update dragonmantank/cron-expression -W` |

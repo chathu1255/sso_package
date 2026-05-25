@@ -47,6 +47,7 @@ class InstallUsjnetSsoCommand extends Command
             : (string) $this->ask('CORS_ALLOWED_ORIGINS (comma-separated)', 'http://127.0.0.1:3000,http://localhost:3000');
 
         $webMwAlias = $this->promptWebMiddlewareAlias();
+        $localLogin = $this->promptLocalLoginSeparateFromSso();
 
         $systemUserModel = null;
         $createSystemUserIfMissing = null;
@@ -74,6 +75,11 @@ class InstallUsjnetSsoCommand extends Command
 
         if ($webMwAlias !== null && $webMwAlias !== '') {
             $envWritten = $this->upsertEnv('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', $webMwAlias) || $envWritten;
+        }
+
+        if ($localLogin !== null) {
+            $envWritten = $this->upsertEnv('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS', $localLogin['path']) || $envWritten;
+            $envWritten = $this->upsertEnv('USJNET_SSO_LOCAL_LOGIN_GUARDS', $localLogin['guard']) || $envWritten;
         }
 
         $envWritten = $this->upsertEnv('USJNET_SSO_REDIRECT_URI', $redirectUri) || $envWritten;
@@ -104,6 +110,10 @@ class InstallUsjnetSsoCommand extends Command
                     'USJNET_SSO_CREATE_SYSTEM_USER_IF_MISSING' => $createSystemUserIfMissing ? 'true' : 'false',
                 ] : [],
                 $webMwAlias !== null && $webMwAlias !== '' ? ['USJNET_SSO_WEB_MIDDLEWARE_ALIAS' => $webMwAlias] : [],
+                $localLogin !== null ? [
+                    'USJNET_SSO_WEB_LOCAL_LOGIN_PATHS' => $localLogin['path'],
+                    'USJNET_SSO_LOCAL_LOGIN_GUARDS' => $localLogin['guard'],
+                ] : [],
                 [
                     'USJNET_SSO_REDIRECT_URI' => $redirectUri,
                     'USJNET_SSO_FRONTEND_HOME_URL' => $frontendHome,
@@ -124,7 +134,10 @@ class InstallUsjnetSsoCommand extends Command
         $this->line('     If login shows token_exchange_failed / Client authentication failed: USJNET_SSO_CLIENT_ID and USJNET_SSO_CLIENT_SECRET must match a confidential OAuth client on the SSO server (no extra spaces in .env).');
         $this->line('  2. Exclude SSO cookies from encryption: Laravel 11+ in bootstrap/app.php (encryptCookies except); Laravel 9–10 in app/Http/Middleware/EncryptCookies::$except.');
         $this->line('  3. In config/cors.php set supports_credentials=true and allowed_origins includes: '.$corsOrigins.' (installer creates config/cors.php if missing).');
-        $this->line('  4. Middleware: sso.web / sso.token are registered; if you set USJNET_SSO_WEB_MIDDLEWARE_ALIAS, remove Laravel’s default `auth` alias if it conflicts.');
+        $this->line('  4. Middleware: sso.web / sso.token are registered; if you set USJNET_SSO_WEB_MIDDLEWARE_ALIAS, remove Laravel’s default `auth` alias if it conflicts. Local admin routes must use auth:admin (or your guard), not the SSO `auth` alias.');
+        if ($localLogin !== null) {
+            $this->line('  4b. Local login: paths under '.$localLogin['path'].' skip SSO; guard `'.$localLogin['guard'].'` skips SSO on all routes while logged in.');
+        }
         $this->line('  5. Live SSO check on every `web` request with cookie: USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP=true (written by installer). Set false only to reduce IdP traffic.');
         $this->line('  6. Optional: USJNET_SSO_INVALID_SESSION_REDIRECT=frontend to send users to SPA login when SSO token dies; USJNET_SSO_TOKEN_VALIDATION_PATH if your IdP uses a non-default profile URL.');
         $this->line('  7. Run: php artisan config:clear');
@@ -170,6 +183,43 @@ class InstallUsjnetSsoCommand extends Command
         }
 
         return $answer;
+    }
+
+    /**
+     * @return array{path: string, guard: string}|null
+     */
+    private function promptLocalLoginSeparateFromSso(): ?array
+    {
+        if (! $this->input->isInteractive()) {
+            return null;
+        }
+
+        $this->newLine();
+        $this->line(' <options=bold>Local login (separate from SSO)</> — e.g. /admin/login for guests; after auth:admin login, SSO is skipped on all routes.');
+        if (! $this->confirm('Configure a local login entry path?', false)) {
+            return null;
+        }
+
+        $path = trim((string) $this->ask('Local login URL path (no leading slash)', 'admin/login'), '/');
+        if ($path === '') {
+            return null;
+        }
+
+        $defaultGuard = trim(dirname(str_replace('\\', '/', $path)), '/');
+        if ($defaultGuard === '.' || $defaultGuard === '/') {
+            $defaultGuard = 'admin';
+        }
+
+        $guard = trim((string) $this->ask(
+            'Guard name (must match Route::middleware("auth:'.$defaultGuard.'") in auth.php)',
+            $defaultGuard
+        ));
+
+        if ($guard === '') {
+            $guard = $defaultGuard;
+        }
+
+        return ['path' => $path, 'guard' => $guard];
     }
 
     /**

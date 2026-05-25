@@ -9,7 +9,6 @@ use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use InvalidArgumentException;
 use Usjnet\Sso\Exceptions\NoLocalUserForSsoException;
-use Usjnet\Sso\Http\Middleware\Concerns\BypassesSsoWhenLocalLoginActive;
 use Usjnet\Sso\Http\Middleware\Concerns\RedirectsInvalidSsoWebSession;
 use Usjnet\Sso\Http\Middleware\Concerns\SkipsSsoWebCookieGate;
 use Usjnet\Sso\SsoAuthService;
@@ -18,15 +17,14 @@ use Usjnet\Sso\Support\HandlesSsoLogout;
 
 /**
  * Re-validates an SSO access cookie with the IdP on every web request (when appended to the `web` group).
- * Use this so a logout or revocation in another app is reflected here on the next refresh or navigation.
  *
  * Unlike {@see EnsureSsoWebAuthenticated}, this middleware does nothing when no SSO cookie is present
- * (guest pages stay guest). When a cookie exists but the token is invalid, it purges local auth and cookies.
+ * (guest pages stay guest). When a cookie exists but the token is invalid, it clears SSO cookies;
+ * local admin/session login is preserved (stale SSO cookies must not log out admin).
  */
 class VerifySsoAccessTokenLive
 {
     use AuthenticatesSsoRequest;
-    use BypassesSsoWhenLocalLoginActive;
     use HandlesSsoLogout;
     use RedirectsInvalidSsoWebSession;
     use SkipsSsoWebCookieGate;
@@ -37,15 +35,7 @@ class VerifySsoAccessTokenLive
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->allowsWithoutAccessCookie($request)) {
-            return $next($request);
-        }
-
-        if ($this->isWebSsoExemptByConfiguredPaths($request)) {
-            return $next($request);
-        }
-
-        if ($this->shouldBypassAllSsoChecks($request)) {
+        if ($this->shouldSkipSsoWebMiddleware($request)) {
             return $next($request);
         }
 
@@ -59,10 +49,12 @@ class VerifySsoAccessTokenLive
         try {
             $user = $this->ssoAuthService->validateAccessTokenForHttpRequest($request, $token);
         } catch (Throwable) {
-            $this->performSsoLogoutSafely($request, $this->ssoAuthService);
-            $this->purgeLocalAuthentication($request);
-
-            return $this->clearAuthCookies($this->respondInvalidSsoWebToken($request, true));
+            return $this->handleInvalidSsoTokenForWeb(
+                $request,
+                $this->ssoAuthService,
+                $this->respondInvalidSsoWebToken($request, true),
+                static fn (): Response => $next($request)
+            );
         }
 
         try {

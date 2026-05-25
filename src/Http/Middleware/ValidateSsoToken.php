@@ -8,16 +8,17 @@ use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use InvalidArgumentException;
 use Usjnet\Sso\Exceptions\NoLocalUserForSsoException;
-use Usjnet\Sso\Http\Middleware\Concerns\BypassesSsoWhenLocalLoginActive;
+use Usjnet\Sso\Http\Middleware\Concerns\SkipsSsoWebCookieGate;
 use Usjnet\Sso\SsoAuthService;
 use Usjnet\Sso\Support\AuthenticatesSsoRequest;
 use Usjnet\Sso\Support\HandlesSsoLogout;
+use Usjnet\Sso\Support\LocalLoginZone;
 
 class ValidateSsoToken
 {
     use AuthenticatesSsoRequest;
-    use BypassesSsoWhenLocalLoginActive;
     use HandlesSsoLogout;
+    use SkipsSsoWebCookieGate;
 
     public function __construct(private readonly SsoAuthService $ssoAuthService)
     {
@@ -25,7 +26,7 @@ class ValidateSsoToken
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->shouldBypassAllSsoChecks($request)) {
+        if ($this->shouldSkipSsoWebMiddleware($request)) {
             return $next($request);
         }
 
@@ -39,6 +40,12 @@ class ValidateSsoToken
         try {
             $user = $this->ssoAuthService->validateAccessTokenForHttpRequest($request, $token);
         } catch (Throwable) {
+            if (LocalLoginZone::hasActiveLocalGuardSession($request)) {
+                $this->performSsoLogoutSafely($request, $this->ssoAuthService);
+
+                return $this->clearAuthCookies($next($request));
+            }
+
             $this->performSsoLogoutSafely($request, $this->ssoAuthService);
             $this->purgeLocalAuthentication($request);
 

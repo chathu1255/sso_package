@@ -100,6 +100,15 @@ return [
     'web_middleware_alias' => trim((string) env('USJNET_SSO_WEB_MIDDLEWARE_ALIAS', '')) ?: null,
 
     /**
+     * Which middleware the optional web alias points to:
+     * - "sso"    => valid SSO cookie only (current/default behavior)
+     * - "hybrid" => allow either a configured local-login guard session or valid SSO cookie
+     */
+    'web_middleware_mode' => (($mode = strtolower(trim((string) env('USJNET_SSO_WEB_MIDDLEWARE_MODE', 'sso')))) === 'hybrid')
+        ? 'hybrid'
+        : 'sso',
+
+    /**
      * When true, {@see \Usjnet\Sso\Http\Middleware\VerifySsoAccessTokenLive} is appended to Laravel's `web` middleware group.
      * Any browser request that sends the SSO access cookie is re-checked with the IdP so logout/revocation elsewhere
      * is reflected on the next refresh or navigation (one round-trip per request; deduped with sso.web on same request).
@@ -122,36 +131,55 @@ return [
     ],
 
     /**
-     * Path prefixes (no leading slash) for which EnsureSsoWebAuthenticated passes through without an SSO cookie
-     * or token validation — use for Laravel session login under e.g. admin/ (see README “Dual web login”).
-     * Comma-separated env, e.g. USJNET_SSO_WEB_EXEMPT_PREFIXES=admin
+     * Optional guest-only paths/prefixes (no SSO redirect before login). Does NOT exempt the whole app after login.
+     * After login, USJNET_SSO_LOCAL_LOGIN_GUARDS skips SSO on all routes. Example: admin/logout for guests only.
      */
-    'web_sso_exempt_path_prefixes' => env('USJNET_SSO_WEB_EXEMPT_PREFIXES')
+    'web_sso_exempt_path_prefixes' => (($raw = env('USJNET_SSO_WEB_EXEMPT_PREFIXES', '')) !== '')
         ? array_values(array_filter(array_map(
-            static fn (string $p): string => trim($p, '/'),
-            explode(',', (string) env('USJNET_SSO_WEB_EXEMPT_PREFIXES'))
+            static fn (string $p): string => trim(str_replace('\\', '/', $p), '/'),
+            explode(',', (string) $raw)
         )))
         : [],
 
     /**
-     * Local (non-SSO) login URLs: comma-separated paths without a leading slash, e.g. admin/login for /admin/login.
-     * EnsureSsoWebAuthenticated skips SSO for that exact path and for all URLs under its parent segment (admin, admin/dashboard, …).
-     * Use USJNET_SSO_WEB_EXEMPT_PREFIXES instead when you need a zone without a single “login” path.
+     * Local login form URLs only (comma-separated, no leading slash). Default when env unset: admin/login.
+     * Guests can open these without SSO redirect. After login, LOCAL_LOGIN_GUARDS skips SSO on every path.
      */
-    'web_sso_local_login_paths' => env('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS')
-        ? array_values(array_filter(array_map(
+    'web_sso_local_login_paths' => (($raw = env('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS', '__DEFAULT__')) === '__DEFAULT__')
+        ? ['admin/login']
+        : array_values(array_filter(array_map(
             static function (string $p): string {
                 $p = str_replace('\\', '/', $p);
 
                 return trim($p, '/');
             },
-            explode(',', (string) env('USJNET_SSO_WEB_LOCAL_LOGIN_PATHS'))
-        )))
-        : [],
+            explode(',', (string) $raw)
+        ))),
 
     /**
-     * Optional: skip SSO web checks on ALL routes while this guard is authenticated (e.g. admin after /admin/login).
-     * Example: USJNET_SSO_SKIP_WEB_CHECKS_GUARD=admin — use the same guard name as Route::middleware('auth:admin').
+     * When true (default), missing guards in USJNET_SSO_LOCAL_LOGIN_GUARDS are registered at boot
+     * using the web/users provider (session driver). Set false to require manual config/auth.php entries.
+     */
+    'auto_register_local_login_guards' => filter_var(
+        env('USJNET_SSO_AUTO_REGISTER_LOCAL_LOGIN_GUARDS', true),
+        FILTER_VALIDATE_BOOLEAN
+    ),
+
+    /**
+     * Guards that skip SSO on every route while authenticated (local login separate from SSO).
+     * Comma-separated, e.g. USJNET_SSO_LOCAL_LOGIN_GUARDS=admin (same name as auth:admin).
+     * When empty, guards are inferred from web_sso_local_login_paths parents (admin/login → admin) if that guard exists in auth.php.
+     */
+    'web_sso_local_login_guards' => (($raw = env('USJNET_SSO_LOCAL_LOGIN_GUARDS', '__DEFAULT__')) === '__DEFAULT__')
+        ? ['admin']
+        : array_values(array_filter(array_map(
+            static fn (string $g): string => trim($g),
+            explode(',', (string) $raw)
+        ))),
+
+    /**
+     * Optional legacy single guard (same as listing one entry in USJNET_SSO_LOCAL_LOGIN_GUARDS).
+     * Example: USJNET_SSO_SKIP_WEB_CHECKS_GUARD=admin
      */
     'skip_sso_web_checks_when_guard' => (($g = trim((string) env('USJNET_SSO_SKIP_WEB_CHECKS_GUARD', ''))) !== '') ? $g : null,
 
