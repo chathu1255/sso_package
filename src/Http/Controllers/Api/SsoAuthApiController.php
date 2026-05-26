@@ -253,6 +253,50 @@ class SsoAuthApiController extends Controller
     public function userLogout(Request $request): Response
     {
         $accessToken = $this->resolveLogoutAccessToken($request);
+        $remoteMessage = null;
+
+        try {
+            $logoutResult = $this->authService->logoutUser($accessToken);
+        } catch (Throwable $exception) {
+            $remoteMessage = $exception->getMessage();
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Unable to logout from SSO.',
+                    'error' => $remoteMessage,
+                ], 502);
+            }
+
+            return response()->make(
+                $remoteMessage !== null && $remoteMessage !== ''
+                    ? 'Unable to logout from SSO: '.$remoteMessage
+                    : 'Unable to logout from SSO.',
+                502
+            );
+        }
+
+        $localStatus = $this->clearCurrentSystemSession($request);
+
+        if ($request->expectsJson()) {
+            return $this->withoutSsoAndLegacyCookies(response()->json([
+                'message' => 'User logged out successfully.',
+                'backend_status' => $localStatus,
+                'sso_status' => $logoutResult['status'],
+                'sso_response' => $logoutResult['body'],
+            ], 200));
+        }
+
+        $query = [
+            'state' => (string) Str::uuid(),
+            'prompt_login' => '1',
+        ];
+
+        return $this->withoutSsoAndLegacyCookies(
+            redirect()->to('/sso/spa/redirect?'.http_build_query($query))
+        );
+    }
+
+    private function clearCurrentSystemSession(Request $request): array
+    {
         $localStatus = [
             'session_invalidated' => false,
             'token_revoked' => false,
@@ -271,62 +315,7 @@ class SsoAuthApiController extends Controller
             }
         }
 
-        $logoutFailed = false;
-        $remoteMessage = null;
-        $logoutResult = null;
-
-        try {
-            $logoutResult = $this->authService->logoutUser($accessToken);
-        } catch (Throwable $exception) {
-            $logoutFailed = true;
-            $remoteMessage = $exception->getMessage();
-        }
-
-        if ($request->expectsJson()) {
-            if ($logoutFailed) {
-                return $this->withoutSsoAndLegacyCookies(response()->json([
-                    'message' => 'Unable to logout from SSO.',
-                    'backend_status' => $localStatus,
-                    'error' => $remoteMessage,
-                ], 500));
-            }
-
-            return $this->withoutSsoAndLegacyCookies(response()->json([
-                'message' => 'User logged out successfully.',
-                'backend_status' => $localStatus,
-                'sso_status' => $logoutResult['status'],
-                'sso_response' => $logoutResult['body'],
-            ], 200));
-        }
-
-        $query = [
-            'state' => (string) Str::uuid(),
-            'prompt_login' => '1',
-        ];
-        if ($logoutFailed) {
-            $query['logout_error'] = 'sso_remote_failed';
-            if ($remoteMessage !== null && $remoteMessage !== '') {
-                $query['logout_error_description'] = $remoteMessage;
-            }
-        }
-
-        // If a front-channel SSO logout GET path is configured, redirect the browser there so the IdP
-        // can clear its session and trigger single-logout across relying parties. Otherwise fall back
-        // to the SPA redirect flow used previously.
-        $getPath = config('usjnet-sso.sso_logout_get_path');
-        $getPath = is_string($getPath) ? trim($getPath) : '';
-        if ($getPath !== '' && str_starts_with($getPath, '/')) {
-            $base = rtrim((string) config('usjnet-sso.base_url', ''), '/');
-            $ssoUrl = $base !== '' ? $base.$getPath : $getPath;
-
-            return $this->withoutSsoAndLegacyCookies(
-                redirect()->away($ssoUrl.($query !== [] ? '?'.http_build_query($query) : ''))
-            );
-        }
-
-        return $this->withoutSsoAndLegacyCookies(
-            redirect()->to('/sso/spa/redirect?'.http_build_query($query))
-        );
+        return $localStatus;
     }
 
     private function withoutSsoAndLegacyCookies(Response $response): Response
