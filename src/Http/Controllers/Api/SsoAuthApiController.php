@@ -310,6 +310,20 @@ class SsoAuthApiController extends Controller
             }
         }
 
+        // If a front-channel SSO logout GET path is configured, redirect the browser there so the IdP
+        // can clear its session and trigger single-logout across relying parties. Otherwise fall back
+        // to the SPA redirect flow used previously.
+        $getPath = config('usjnet-sso.sso_logout_get_path');
+        $getPath = is_string($getPath) ? trim($getPath) : '';
+        if ($getPath !== '' && str_starts_with($getPath, '/')) {
+            $base = rtrim((string) config('usjnet-sso.base_url', ''), '/');
+            $ssoUrl = $base !== '' ? $base.$getPath : $getPath;
+
+            return $this->withoutSsoAndLegacyCookies(
+                redirect()->away($ssoUrl.($query !== [] ? '?'.http_build_query($query) : ''))
+            );
+        }
+
         return $this->withoutSsoAndLegacyCookies(
             redirect()->to('/sso/spa/redirect?'.http_build_query($query))
         );
