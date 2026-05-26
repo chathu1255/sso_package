@@ -79,7 +79,10 @@ return [
         FILTER_VALIDATE_BOOL,
         FILTER_NULL_ON_FAILURE
     ) ?? true
-        ? [\Illuminate\Session\Middleware\StartSession::class]
+        ? [
+            \Illuminate\Cookie\Middleware\EncryptCookies::class,
+            \Illuminate\Session\Middleware\StartSession::class,
+        ]
         : [],
 
     /** Prefix for bootstrap cache keys (legacy SPA callback). */

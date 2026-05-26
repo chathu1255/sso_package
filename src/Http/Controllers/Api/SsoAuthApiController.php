@@ -382,14 +382,37 @@ class SsoAuthApiController extends Controller
     {
         $tokens = Collection::make([
             $request->bearerToken(),
-            $request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
-            $request->cookie('accessToken'),
+            $this->decodeTokenCandidate($request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token'))),
+            $this->decodeTokenCandidate($request->cookie('accessToken')),
             $request->input('access_token'),
             $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
         ])->map(static fn (mixed $value): string => is_string($value) ? trim($value) : '')
             ->filter();
 
         return $tokens->first() ?: null;
+    }
+
+    private function decodeTokenCandidate(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        try {
+            $decrypted = app('encrypter')->decrypt($trimmed, false);
+            if (is_string($decrypted) && trim($decrypted) !== '') {
+                return trim($decrypted);
+            }
+        } catch (Throwable) {
+            // Cookie may already be plain-text on api routes; use original value.
+        }
+
+        return $trimmed;
     }
 
     private function storeSsoTokensInSession(Request $request, SsoToken $token): void

@@ -100,8 +100,8 @@ trait HandlesSsoLogout
     {
         foreach ([
             $request->bearerToken(),
-            $request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
-            $request->cookie('accessToken'),
+            $this->decodeTokenCandidate($request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token'))),
+            $this->decodeTokenCandidate($request->cookie('accessToken')),
             $request->input('access_token'),
             $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
         ] as $candidate) {
@@ -111,6 +111,29 @@ trait HandlesSsoLogout
         }
 
         return null;
+    }
+
+    private function decodeTokenCandidate(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        try {
+            $decrypted = app('encrypter')->decrypt($trimmed, false);
+            if (is_string($decrypted) && trim($decrypted) !== '') {
+                return trim($decrypted);
+            }
+        } catch (Throwable) {
+            //
+        }
+
+        return $trimmed;
     }
 }
 
