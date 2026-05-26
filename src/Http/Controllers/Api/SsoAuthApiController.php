@@ -121,7 +121,12 @@ class SsoAuthApiController extends Controller
             ], 410);
         }
 
-        return response()->json($data);
+        $token = SsoToken::fromArray($data);
+        $response = response()->json($data);
+
+        $this->storeSsoTokensInSession($request, $token);
+
+        return $this->withSsoHttpOnlyCookies($response, $token);
     }
 
     public function login(LoginRequest $request): JsonResponse
@@ -171,7 +176,7 @@ class SsoAuthApiController extends Controller
 
         $this->storeSsoTokensInSession($request, $token);
 
-        return $response;
+        return $this->withSsoHttpOnlyCookies($response, $token);
     }
 
     public function exchangeCode(TokenExchangeRequest $request): JsonResponse
@@ -182,7 +187,7 @@ class SsoAuthApiController extends Controller
 
         $this->storeSsoTokensInSession($request, $token);
 
-        return $response;
+        return $this->withSsoHttpOnlyCookies($response, $token);
     }
 
     public function refresh(RefreshTokenRequest $request): JsonResponse
