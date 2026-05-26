@@ -6,6 +6,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -251,8 +252,7 @@ class SsoAuthApiController extends Controller
 
     public function userLogout(Request $request): Response
     {
-        $accessCookie = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
-        $accessToken = $request->bearerToken() ?? $request->cookie($accessCookie);
+        $accessToken = $this->resolveLogoutAccessToken($request);
         $localStatus = [
             'session_invalidated' => false,
             'token_revoked' => false,
@@ -266,8 +266,7 @@ class SsoAuthApiController extends Controller
 
         if ($this->authGuardExists('api')) {
             $user = Auth::guard('api')->user();
-            if ($user && method_exists($user, 'token') && $user->token()) {
-                $user->token()->revoke();
+            if ($user && $this->revokeAllPassportTokensForUser($user)) {
                 $localStatus['token_revoked'] = true;
             }
         }
@@ -360,6 +359,45 @@ class SsoAuthApiController extends Controller
         return $response
             ->withoutCookie($accessName, $path, $domain)
             ->withoutCookie($refreshName, $path, $domain);
+    }
+
+    private function resolveLogoutAccessToken(Request $request): ?string
+    {
+        $tokens = Collection::make([
+            $request->bearerToken(),
+            $request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
+            $request->cookie('accessToken'),
+            $request->input('access_token'),
+        ])->map(static fn (mixed $value): string => is_string($value) ? trim($value) : '')
+            ->filter();
+
+        return $tokens->first() ?: null;
+    }
+
+    private function revokeAllPassportTokensForUser(mixed $user): bool
+    {
+        if (! is_object($user) || ! method_exists($user, 'tokens')) {
+            return false;
+        }
+
+        $tokenIds = $user->tokens()->pluck('id');
+        if ($tokenIds->isEmpty()) {
+            if (! method_exists($user, 'token') || ! $user->token()) {
+                return false;
+            }
+
+            $user->token()->revoke();
+
+            return true;
+        }
+
+        DB::table('oauth_refresh_tokens')
+            ->whereIn('access_token_id', $tokenIds)
+            ->delete();
+
+        $user->tokens()->delete();
+
+        return true;
     }
 
     private function authGuardExists(string $name): bool

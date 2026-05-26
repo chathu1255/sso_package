@@ -13,8 +13,7 @@ trait HandlesSsoLogout
 {
     private function performSsoLogoutSafely(Request $request, SsoAuthService $ssoAuthService): void
     {
-        $accessCookie = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
-        $accessToken = $request->bearerToken() ?? $request->cookie($accessCookie);
+        $accessToken = $this->resolveLogoutAccessToken($request);
 
         if (is_string($accessToken) && trim($accessToken) !== '') {
             try {
@@ -83,16 +82,34 @@ trait HandlesSsoLogout
     {
         $accessCookie = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
         $refreshCookie = (string) config('usjnet-sso.refresh_token_cookie', 'sso_refresh_token');
+        $path = (string) config('usjnet-sso.cookie_path', '/');
+        $domain = config('usjnet-sso.cookie_domain');
 
         return $response
-            ->withoutCookie($accessCookie)
-            ->withoutCookie($refreshCookie)
-            ->withoutCookie('accessToken')
-            ->withoutCookie('privilages')
-            ->withoutCookie('userState')
-            ->withoutCookie('userStatus')
-            ->withoutCookie('sjpEmail')
-            ->withoutCookie('empNo');
+            ->withoutCookie($accessCookie, $path, $domain)
+            ->withoutCookie($refreshCookie, $path, $domain)
+            ->withoutCookie('accessToken', $path, $domain)
+            ->withoutCookie('privilages', $path, $domain)
+            ->withoutCookie('userState', $path, $domain)
+            ->withoutCookie('userStatus', $path, $domain)
+            ->withoutCookie('sjpEmail', $path, $domain)
+            ->withoutCookie('empNo', $path, $domain);
+    }
+
+    private function resolveLogoutAccessToken(Request $request): ?string
+    {
+        foreach ([
+            $request->bearerToken(),
+            $request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
+            $request->cookie('accessToken'),
+            $request->input('access_token'),
+        ] as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
     }
 }
 
