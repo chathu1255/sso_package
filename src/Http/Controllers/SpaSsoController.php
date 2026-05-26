@@ -79,6 +79,11 @@ class SpaSsoController extends Controller
             ]));
         }
 
+        if ($request->hasSession()) {
+            $request->session()->put('usjnet_sso.access_token', $token->accessToken);
+            $request->session()->put('usjnet_sso.refresh_token', $token->refreshToken);
+        }
+
         $accessName = (string) config('usjnet-sso.access_token_cookie', 'sso_access_token');
         $refreshName = (string) config('usjnet-sso.refresh_token_cookie', 'sso_refresh_token');
         $minutes = (int) config('usjnet-sso.access_token_cookie_minutes', 60 * 12);

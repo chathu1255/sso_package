@@ -167,14 +167,22 @@ class SsoAuthApiController extends Controller
             }
         }
 
-        return response()->json($token->toFrontendPayload());
+        $response = response()->json($token->toFrontendPayload());
+
+        $this->storeSsoTokensInSession($request, $token);
+
+        return $response;
     }
 
     public function exchangeCode(TokenExchangeRequest $request): JsonResponse
     {
         $token = $this->authService->exchangeAuthorizationCode((string) $request->input('code', ''));
 
-        return response()->json($token->toFrontendPayload());
+        $response = response()->json($token->toFrontendPayload());
+
+        $this->storeSsoTokensInSession($request, $token);
+
+        return $response;
     }
 
     public function refresh(RefreshTokenRequest $request): JsonResponse
@@ -185,6 +193,7 @@ class SsoAuthApiController extends Controller
         );
 
         $response = response()->json($token->toFrontendPayload());
+        $this->storeSsoTokensInSession($request, $token);
 
         return $this->withSsoHttpOnlyCookies($response, $token);
     }
@@ -371,10 +380,21 @@ class SsoAuthApiController extends Controller
             $request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
             $request->cookie('accessToken'),
             $request->input('access_token'),
+            $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
         ])->map(static fn (mixed $value): string => is_string($value) ? trim($value) : '')
             ->filter();
 
         return $tokens->first() ?: null;
+    }
+
+    private function storeSsoTokensInSession(Request $request, SsoToken $token): void
+    {
+        if (! $request->hasSession()) {
+            return;
+        }
+
+        $request->session()->put('usjnet_sso.access_token', $token->accessToken);
+        $request->session()->put('usjnet_sso.refresh_token', $token->refreshToken);
     }
 
     private function revokeAllPassportTokensForUser(mixed $user): bool

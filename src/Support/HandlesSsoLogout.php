@@ -103,6 +103,7 @@ trait HandlesSsoLogout
             $request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
             $request->cookie('accessToken'),
             $request->input('access_token'),
+            $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
         ] as $candidate) {
             if (is_string($candidate) && trim($candidate) !== '') {
                 return trim($candidate);
