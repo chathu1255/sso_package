@@ -283,8 +283,11 @@ class SsoAuthApiController extends Controller
                         'token_resolved' => $accessToken !== null,
                         'token_source' => $logoutToken['source'],
                         'has_session' => $request->hasSession(),
+                        'has_session_token' => $this->requestHasSessionToken($request),
                         'has_access_cookie' => $this->requestHasCookie($request, (string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
                         'has_legacy_access_cookie' => $this->requestHasCookie($request, 'accessToken'),
+                        'session_token_hash' => $this->requestSessionTokenHash($request),
+                        'access_cookie_hash' => $this->requestCookieTokenHash($request, (string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
                     ],
                 ], 502);
             }
@@ -310,6 +313,9 @@ class SsoAuthApiController extends Controller
                     'token_resolved' => $accessToken !== null,
                     'token_source' => $logoutToken['source'],
                     'has_session' => $request->hasSession(),
+                    'has_session_token' => $this->requestHasSessionToken($request),
+                    'session_token_hash' => $this->requestSessionTokenHash($request),
+                    'access_cookie_hash' => $this->requestCookieTokenHash($request, (string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
                 ],
             ], 200));
         }
@@ -510,5 +516,38 @@ class SsoAuthApiController extends Controller
         $cookie = $request->cookie($cookieName);
 
         return is_string($cookie) && trim($cookie) !== '';
+    }
+
+    private function requestHasSessionToken(Request $request): bool
+    {
+        if (! $request->hasSession()) {
+            return false;
+        }
+
+        $token = $request->session()->get('usjnet_sso.access_token');
+
+        return is_string($token) && trim($token) !== '';
+    }
+
+    private function requestSessionTokenHash(Request $request): ?string
+    {
+        if (! $request->hasSession()) {
+            return null;
+        }
+
+        $token = $request->session()->get('usjnet_sso.access_token');
+
+        return is_string($token) && trim($token) !== ''
+            ? sha1(trim($token))
+            : null;
+    }
+
+    private function requestCookieTokenHash(Request $request, string $cookieName): ?string
+    {
+        $token = $this->decodeTokenCandidate($request->cookie($cookieName));
+
+        return is_string($token) && trim($token) !== ''
+            ? sha1(trim($token))
+            : null;
     }
 }
