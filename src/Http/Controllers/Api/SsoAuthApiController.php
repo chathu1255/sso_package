@@ -268,6 +268,7 @@ class SsoAuthApiController extends Controller
     {
         $accessToken = $this->resolveLogoutAccessToken($request);
         $remoteMessage = null;
+        $browserLogoutUrl = $this->resolveBrowserLogoutUrl();
 
         try {
             $logoutResult = $this->authService->logoutUser($accessToken);
@@ -296,17 +297,18 @@ class SsoAuthApiController extends Controller
                 'backend_status' => $localStatus,
                 'sso_status' => $logoutResult['status'],
                 'sso_response' => $logoutResult['body'],
+                'browser_logout_url' => $browserLogoutUrl,
             ], 200));
         }
 
-        $query = [
-            'state' => (string) Str::uuid(),
-            'prompt_login' => '1',
-        ];
+        $response = $browserLogoutUrl !== null
+            ? redirect()->away($browserLogoutUrl)
+            : redirect()->to('/sso/spa/redirect?'.http_build_query([
+                'state' => (string) Str::uuid(),
+                'prompt_login' => '1',
+            ]));
 
-        return $this->withoutSsoAndLegacyCookies(
-            redirect()->to('/sso/spa/redirect?'.http_build_query($query))
-        );
+        return $this->withoutSsoAndLegacyCookies($response);
     }
 
     private function clearCurrentSystemSession(Request $request): array
@@ -456,5 +458,23 @@ class SsoAuthApiController extends Controller
         $guards = config('auth.guards', []);
 
         return is_array($guards) && array_key_exists($name, $guards);
+    }
+
+    private function resolveBrowserLogoutUrl(): ?string
+    {
+        $url = config('usjnet-sso.browser_logout_url');
+        $url = is_string($url) ? trim($url) : '';
+        if ($url === '') {
+            return null;
+        }
+
+        $returnUrl = config('usjnet-sso.browser_logout_redirect_url');
+        $returnUrl = is_string($returnUrl) ? trim($returnUrl) : '';
+
+        if ($returnUrl !== '' && str_contains($url, '{return_url}')) {
+            $url = str_replace('{return_url}', rawurlencode($returnUrl), $url);
+        }
+
+        return $url !== '' ? $url : null;
     }
 }

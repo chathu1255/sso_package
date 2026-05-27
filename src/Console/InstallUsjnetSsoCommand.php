@@ -56,13 +56,22 @@ class InstallUsjnetSsoCommand extends Command
             $createSystemUserIfMissing = $this->confirm('Create a local user row automatically if email is not in the database?', false);
         }
 
-        $cookieSecure = $this->confirm('Use secure cookies (https only)?', false) ? 'true' : 'false';
-        $cookieSameSite = (string) $this->choice('Cookie SameSite', ['lax', 'none', 'strict'], 'lax');
+        $recommendedSecureCookies = $style === 'separate';
+        $recommendedSameSite = $style === 'separate' ? 'none' : 'lax';
+        $cookieSecure = $this->confirm('Use secure cookies (https only)?', $recommendedSecureCookies) ? 'true' : 'false';
+        $cookieSameSite = (string) $this->choice('Cookie SameSite', ['lax', 'none', 'strict'], $recommendedSameSite);
         $scope = trim((string) config('usjnet-sso.scope', 'view-user'));
         $scope = $scope !== '' ? $scope : 'view-user';
+        $appHost = $this->extractHostFromUrl($appUrl);
+        $browserLogoutUrl = rtrim($ssoBaseUrl, '/').'/logout/browser?redirect={return_url}';
+        $browserLogoutRedirectUrl = $this->buildLogoutRedirectUrl($frontendHome, $appUrl, $style);
 
         $envWritten = false;
         $envWritten = $this->upsertEnv('APP_URL', $appUrl) || $envWritten;
+        $envWritten = $this->upsertEnv('SESSION_DRIVER', 'file') || $envWritten;
+        $envWritten = $this->upsertEnv('SESSION_DOMAIN', $appHost) || $envWritten;
+        $envWritten = $this->upsertEnv('SESSION_SECURE_COOKIE', 'false') || $envWritten;
+        $envWritten = $this->upsertEnv('SESSION_SAME_SITE', 'lax') || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_BASE_URL', $ssoBaseUrl) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_CLIENT_ID', $clientId) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_CLIENT_SECRET', $clientSecret) || $envWritten;
@@ -88,6 +97,12 @@ class InstallUsjnetSsoCommand extends Command
         $envWritten = $this->upsertEnv('USJNET_SSO_SCOPE', $scope) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_SECURE', $cookieSecure) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_SAME_SITE', $cookieSameSite) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_DOMAIN', $appHost) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_PATH', '/') || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_USER_LOGOUT_USE_SESSION', 'true') || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_LOGOUT_GET_PATH', '') || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_BROWSER_LOGOUT_URL', $browserLogoutUrl) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_BROWSER_LOGOUT_REDIRECT_URL', $browserLogoutRedirectUrl) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP', 'true') || $envWritten;
         $this->ensureCorsConfigExists();
 
@@ -100,6 +115,10 @@ class InstallUsjnetSsoCommand extends Command
             $suggestedLines = array_merge(
                 [
                     'APP_URL' => $appUrl,
+                    'SESSION_DRIVER' => 'file',
+                    'SESSION_DOMAIN' => $appHost,
+                    'SESSION_SECURE_COOKIE' => 'false',
+                    'SESSION_SAME_SITE' => 'lax',
                     'USJNET_SSO_BASE_URL' => $ssoBaseUrl,
                     'USJNET_SSO_CLIENT_ID' => $clientId,
                     'USJNET_SSO_CLIENT_SECRET' => $clientSecret,
@@ -121,6 +140,12 @@ class InstallUsjnetSsoCommand extends Command
                     'USJNET_SSO_SCOPE' => $scope,
                     'USJNET_SSO_COOKIE_SECURE' => $cookieSecure,
                     'USJNET_SSO_COOKIE_SAME_SITE' => $cookieSameSite,
+                    'USJNET_SSO_COOKIE_DOMAIN' => $appHost,
+                    'USJNET_SSO_COOKIE_PATH' => '/',
+                    'USJNET_SSO_USER_LOGOUT_USE_SESSION' => 'true',
+                    'USJNET_SSO_LOGOUT_GET_PATH' => '',
+                    'USJNET_SSO_BROWSER_LOGOUT_URL' => $browserLogoutUrl,
+                    'USJNET_SSO_BROWSER_LOGOUT_REDIRECT_URL' => $browserLogoutRedirectUrl,
                     'USJNET_SSO_VERIFY_LIVE_ON_WEB_GROUP' => 'true',
                 ]
             );
@@ -316,6 +341,46 @@ class InstallUsjnetSsoCommand extends Command
         }
 
         return '"'.str_replace('"', '\"', $value).'"';
+    }
+
+    private function extractHostFromUrl(string $url): string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        return is_string($host) && trim($host) !== ''
+            ? trim($host)
+            : '127.0.0.1';
+    }
+
+    private function buildLogoutRedirectUrl(string $frontendHome, string $appUrl, string $style): string
+    {
+        $base = $style === 'single'
+            ? rtrim($appUrl, '/')
+            : $this->extractOriginFromUrl($frontendHome);
+
+        if ($base === '') {
+            $base = rtrim($appUrl, '/');
+        }
+
+        return rtrim($base, '/').'/login?after_logout=1';
+    }
+
+    private function extractOriginFromUrl(string $url): string
+    {
+        $parts = parse_url($url);
+        if (! is_array($parts)) {
+            return '';
+        }
+
+        $scheme = isset($parts['scheme']) ? trim((string) $parts['scheme']) : '';
+        $host = isset($parts['host']) ? trim((string) $parts['host']) : '';
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
+
+        if ($scheme === '' || $host === '') {
+            return '';
+        }
+
+        return $scheme.'://'.$host.$port;
     }
 
     private function ensureCorsConfigExists(): void

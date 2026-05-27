@@ -44,6 +44,23 @@ class DoctorUsjnetSsoCommand extends Command
 
         $frontendHome = (string) config('usjnet-sso.frontend_home_url', '');
         $this->check('USJNET_SSO_FRONTEND_HOME_URL configured', $frontendHome !== '', $frontendHome);
+        $isCrossOriginFrontend = $this->originsDiffer($appUrl, $frontendHome);
+
+        $cookieSameSite = strtolower(trim((string) config('usjnet-sso.cookie_same_site', 'lax')));
+        $cookieSecure = (bool) config('usjnet-sso.cookie_secure', false);
+        $this->check('SSO cookie SameSite configured', in_array($cookieSameSite, ['lax', 'none', 'strict'], true), $cookieSameSite);
+        if ($isCrossOriginFrontend) {
+            $this->check(
+                'Cross-origin SPA: cookie SameSite must be none for credentials-based logout/login',
+                $cookieSameSite === 'none',
+                'current='.$cookieSameSite
+            );
+            $this->check(
+                'Cross-origin SPA: secure cookies should be enabled',
+                $cookieSecure,
+                'current='.var_export($cookieSecure, true)
+            );
+        }
 
         $authMode = strtolower((string) config('usjnet-sso.auth_user_mode', 'sso'));
         if ($authMode === 'system') {
@@ -184,6 +201,33 @@ class DoctorUsjnetSsoCommand extends Command
         }
 
         return false;
+    }
+
+    private function originsDiffer(string $firstUrl, string $secondUrl): bool
+    {
+        if (trim($firstUrl) === '' || trim($secondUrl) === '') {
+            return false;
+        }
+
+        return $this->normalizeOrigin($firstUrl) !== $this->normalizeOrigin($secondUrl);
+    }
+
+    private function normalizeOrigin(string $url): string
+    {
+        $parts = parse_url($url);
+        if (! is_array($parts)) {
+            return '';
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $port = isset($parts['port']) ? (string) $parts['port'] : '';
+
+        if ($scheme === '' || $host === '') {
+            return '';
+        }
+
+        return $scheme.'://'.$host.($port !== '' ? ':'.$port : '');
     }
 }
 

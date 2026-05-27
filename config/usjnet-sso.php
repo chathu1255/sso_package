@@ -48,6 +48,20 @@ return [
     'sso_logout_get_path' => trim((string) env('USJNET_SSO_LOGOUT_GET_PATH', '/api/user_logout')) ?: null,
 
     /**
+     * Optional browser-facing SSO logout URL.
+     * Use this when the SSO server must clear its own web session/cookies in the browser after API token revocation.
+     * Example: http://10.32.192.185/logout?redirect={return_url}
+     */
+    'browser_logout_url' => trim((string) env('USJNET_SSO_BROWSER_LOGOUT_URL', '')) ?: null,
+
+    /**
+     * Optional redirect target used when building browser_logout_url.
+     * If browser_logout_url contains {return_url}, it is replaced with the URL-encoded value of this setting.
+     * Defaults to USJNET_SSO_FRONTEND_HOME_URL when omitted.
+     */
+    'browser_logout_redirect_url' => trim((string) env('USJNET_SSO_BROWSER_LOGOUT_REDIRECT_URL', env('USJNET_SSO_FRONTEND_HOME_URL', ''))) ?: null,
+
+    /**
      * When the access token is dead on web routes: "oauth" = redirect to /sso/spa/redirect (default),
      * "frontend" = redirect to USJNET_SSO_FRONTEND_HOME_URL with ?login_error=session_expired (SPA login page).
      */

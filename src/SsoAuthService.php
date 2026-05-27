@@ -95,29 +95,32 @@ class SsoAuthService
 
     public function logoutUser(?string $token = null): array
     {
-        $request = $this->client();
-
-        if (filled($token)) {
-            $request = $request->withToken($token);
-        }
+        $token = is_string($token) ? trim($token) : '';
 
         $postPath = trim((string) config('usjnet-sso.sso_logout_post_path', '/api/logout_passort_user'));
         if ($postPath === '' || ! str_starts_with($postPath, '/') || str_contains($postPath, '..')) {
             $postPath = '/api/logout_passort_user';
         }
 
-        $passportLogout = $request->post($postPath);
+        $passportLogout = $this->logoutRequest($token)->asForm()->post(
+            $postPath,
+            $token !== '' ? ['access_token' => $token] : []
+        );
 
+        $passportSuccessful = $passportLogout->successful();
         $getPath = config('usjnet-sso.sso_logout_get_path');
         $getPath = is_string($getPath) ? trim($getPath) : '';
         if ($getPath !== '' && (! str_starts_with($getPath, '/') || str_contains($getPath, '..'))) {
             $getPath = '';
         }
-        $legacyLogout = $getPath !== ''
-            ? $request->get($getPath)
+        $legacyLogout = ($getPath !== '' && ! $passportSuccessful)
+            ? $this->logoutRequest($token)->get($getPath)
             : null;
 
-        $hasSuccess = $passportLogout->successful() || ($legacyLogout !== null && $legacyLogout->successful());
+        $legacySuccessful = $legacyLogout !== null && $legacyLogout->successful();
+        $hasSuccess = $token !== ''
+            ? $passportSuccessful
+            : ($passportSuccessful || $legacySuccessful);
 
         if (! $hasSuccess) {
             $status = $passportLogout->status() ?: ($legacyLogout !== null ? $legacyLogout->status() : 0) ?: 500;
@@ -140,13 +143,15 @@ class SsoAuthService
                 'passport_logout' => [
                     'path' => $postPath,
                     'status' => $passportLogout->status(),
-                    'successful' => $passportLogout->successful(),
+                    'successful' => $passportSuccessful,
+                    'token_forwarded_as_bearer' => $token !== '',
                     'response' => $passportLogout->json() ?: $passportLogout->body(),
                 ],
                 'legacy_logout' => $legacyLogout === null ? null : [
                     'path' => $getPath,
                     'status' => $legacyLogout->status(),
-                    'successful' => $legacyLogout->successful(),
+                    'successful' => $legacySuccessful,
+                    'token_forwarded_as_bearer' => $token !== '',
                     'response' => $legacyLogout->json() ?: $legacyLogout->body(),
                 ],
             ],
@@ -202,5 +207,18 @@ class SsoAuthService
         return Http::baseUrl(rtrim((string) config('usjnet-sso.base_url'), '/'))
             ->acceptJson()
             ->timeout((int) config('usjnet-sso.timeout', 15));
+    }
+
+    protected function logoutRequest(?string $token = null): PendingRequest
+    {
+        $request = $this->client()->withHeaders([
+            'Cache-Control' => 'no-cache, no-store',
+            'Pragma' => 'no-cache',
+            'Expires' => '0',
+        ]);
+
+        $token = is_string($token) ? trim($token) : '';
+
+        return $token !== '' ? $request->withToken($token) : $request;
     }
 }
