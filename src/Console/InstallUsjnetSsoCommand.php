@@ -63,13 +63,15 @@ class InstallUsjnetSsoCommand extends Command
         $scope = trim((string) config('usjnet-sso.scope', 'view-user'));
         $scope = $scope !== '' ? $scope : 'view-user';
         $appHost = $this->extractHostFromUrl($appUrl);
+        $sessionDomain = $style === 'single' ? '' : $appHost;
+        $ssoCookieDomain = $style === 'single' ? '' : $appHost;
         $browserLogoutUrl = rtrim($ssoBaseUrl, '/').'/logout/browser?redirect={return_url}';
         $browserLogoutRedirectUrl = $this->buildLogoutRedirectUrl($frontendHome, $appUrl, $style);
 
         $envWritten = false;
         $envWritten = $this->upsertEnv('APP_URL', $appUrl) || $envWritten;
         $envWritten = $this->upsertEnv('SESSION_DRIVER', 'file') || $envWritten;
-        $envWritten = $this->upsertEnv('SESSION_DOMAIN', $appHost) || $envWritten;
+        $envWritten = $this->upsertEnv('SESSION_DOMAIN', $sessionDomain) || $envWritten;
         $envWritten = $this->upsertEnv('SESSION_SECURE_COOKIE', 'false') || $envWritten;
         $envWritten = $this->upsertEnv('SESSION_SAME_SITE', 'lax') || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_BASE_URL', $ssoBaseUrl) || $envWritten;
@@ -97,7 +99,7 @@ class InstallUsjnetSsoCommand extends Command
         $envWritten = $this->upsertEnv('USJNET_SSO_SCOPE', $scope) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_SECURE', $cookieSecure) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_SAME_SITE', $cookieSameSite) || $envWritten;
-        $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_DOMAIN', $appHost) || $envWritten;
+        $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_DOMAIN', $ssoCookieDomain) || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_COOKIE_PATH', '/') || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_USER_LOGOUT_USE_SESSION', 'true') || $envWritten;
         $envWritten = $this->upsertEnv('USJNET_SSO_LOGOUT_GET_PATH', '') || $envWritten;
@@ -116,7 +118,7 @@ class InstallUsjnetSsoCommand extends Command
                 [
                     'APP_URL' => $appUrl,
                     'SESSION_DRIVER' => 'file',
-                    'SESSION_DOMAIN' => $appHost,
+                    'SESSION_DOMAIN' => $sessionDomain,
                     'SESSION_SECURE_COOKIE' => 'false',
                     'SESSION_SAME_SITE' => 'lax',
                     'USJNET_SSO_BASE_URL' => $ssoBaseUrl,
@@ -140,7 +142,7 @@ class InstallUsjnetSsoCommand extends Command
                     'USJNET_SSO_SCOPE' => $scope,
                     'USJNET_SSO_COOKIE_SECURE' => $cookieSecure,
                     'USJNET_SSO_COOKIE_SAME_SITE' => $cookieSameSite,
-                    'USJNET_SSO_COOKIE_DOMAIN' => $appHost,
+                    'USJNET_SSO_COOKIE_DOMAIN' => $ssoCookieDomain,
                     'USJNET_SSO_COOKIE_PATH' => '/',
                     'USJNET_SSO_USER_LOGOUT_USE_SESSION' => 'true',
                     'USJNET_SSO_LOGOUT_GET_PATH' => '',

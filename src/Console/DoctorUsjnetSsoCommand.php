@@ -45,21 +45,31 @@ class DoctorUsjnetSsoCommand extends Command
         $frontendHome = (string) config('usjnet-sso.frontend_home_url', '');
         $this->check('USJNET_SSO_FRONTEND_HOME_URL configured', $frontendHome !== '', $frontendHome);
         $isCrossOriginFrontend = $this->originsDiffer($appUrl, $frontendHome);
+        $browserLogoutUrl = trim((string) config('usjnet-sso.browser_logout_url', ''));
 
         $cookieSameSite = strtolower(trim((string) config('usjnet-sso.cookie_same_site', 'lax')));
         $cookieSecure = (bool) config('usjnet-sso.cookie_secure', false);
         $this->check('SSO cookie SameSite configured', in_array($cookieSameSite, ['lax', 'none', 'strict'], true), $cookieSameSite);
         if ($isCrossOriginFrontend) {
-            $this->check(
-                'Cross-origin SPA: cookie SameSite must be none for credentials-based logout/login',
-                $cookieSameSite === 'none',
-                'current='.$cookieSameSite
-            );
-            $this->check(
-                'Cross-origin SPA: secure cookies should be enabled',
-                $cookieSecure,
-                'current='.var_export($cookieSecure, true)
-            );
+            if ($browserLogoutUrl !== '') {
+                if ($cookieSameSite !== 'none') {
+                    $this->line('<fg=yellow>[WARN] Cross-origin SPA cookie SameSite is not none</> -> current='.$cookieSameSite.'. Browser logout redirect is configured, so this is acceptable for HTTP/internal-IP setups that do not rely on cross-site auth cookies.');
+                }
+                if (! $cookieSecure) {
+                    $this->line('<fg=yellow>[WARN] Cross-origin SPA secure cookies are disabled</> -> current='.var_export($cookieSecure, true).'. Browser logout redirect is configured, so this is acceptable for HTTP/internal-IP setups that do not rely on cross-site auth cookies.');
+                }
+            } else {
+                $this->check(
+                    'Cross-origin SPA: cookie SameSite must be none for credentials-based logout/login',
+                    $cookieSameSite === 'none',
+                    'current='.$cookieSameSite
+                );
+                $this->check(
+                    'Cross-origin SPA: secure cookies should be enabled',
+                    $cookieSecure,
+                    'current='.var_export($cookieSecure, true)
+                );
+            }
         }
 
         $authMode = strtolower((string) config('usjnet-sso.auth_user_mode', 'sso'));
