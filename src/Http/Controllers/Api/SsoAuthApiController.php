@@ -266,7 +266,8 @@ class SsoAuthApiController extends Controller
 
     public function userLogout(Request $request): Response
     {
-        $accessToken = $this->resolveLogoutAccessToken($request);
+        $logoutToken = $this->resolveLogoutAccessTokenDetails($request);
+        $accessToken = $logoutToken['token'];
         $remoteMessage = null;
         $browserLogoutUrl = $this->resolveBrowserLogoutUrl();
 
@@ -278,6 +279,13 @@ class SsoAuthApiController extends Controller
                 return response()->json([
                     'message' => 'Unable to logout from SSO.',
                     'error' => $remoteMessage,
+                    'logout_debug' => [
+                        'token_resolved' => $accessToken !== null,
+                        'token_source' => $logoutToken['source'],
+                        'has_session' => $request->hasSession(),
+                        'has_access_cookie' => $this->requestHasCookie($request, (string) config('usjnet-sso.access_token_cookie', 'sso_access_token')),
+                        'has_legacy_access_cookie' => $this->requestHasCookie($request, 'accessToken'),
+                    ],
                 ], 502);
             }
 
@@ -298,6 +306,11 @@ class SsoAuthApiController extends Controller
                 'sso_status' => $logoutResult['status'],
                 'sso_response' => $logoutResult['body'],
                 'browser_logout_url' => $browserLogoutUrl,
+                'logout_debug' => [
+                    'token_resolved' => $accessToken !== null,
+                    'token_source' => $logoutToken['source'],
+                    'has_session' => $request->hasSession(),
+                ],
             ], 200));
         }
 
@@ -382,16 +395,7 @@ class SsoAuthApiController extends Controller
 
     private function resolveLogoutAccessToken(Request $request): ?string
     {
-        $tokens = Collection::make([
-            $request->bearerToken(),
-            $this->decodeTokenCandidate($request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token'))),
-            $this->decodeTokenCandidate($request->cookie('accessToken')),
-            $request->input('access_token'),
-            $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
-        ])->map(static fn (mixed $value): string => is_string($value) ? trim($value) : '')
-            ->filter();
-
-        return $tokens->first() ?: null;
+        return $this->resolveLogoutAccessTokenDetails($request)['token'];
     }
 
     private function decodeTokenCandidate(mixed $value): ?string
@@ -476,5 +480,35 @@ class SsoAuthApiController extends Controller
         }
 
         return $url !== '' ? $url : null;
+    }
+
+    /**
+     * @return array{token: ?string, source: ?string}
+     */
+    private function resolveLogoutAccessTokenDetails(Request $request): array
+    {
+        $candidates = [
+            'bearer' => $request->bearerToken(),
+            'access_cookie' => $this->decodeTokenCandidate($request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token'))),
+            'legacy_access_cookie' => $this->decodeTokenCandidate($request->cookie('accessToken')),
+            'request_input' => $request->input('access_token'),
+            'session' => $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
+        ];
+
+        foreach ($candidates as $source => $candidate) {
+            $token = is_string($candidate) ? trim($candidate) : '';
+            if ($token !== '') {
+                return ['token' => $token, 'source' => $source];
+            }
+        }
+
+        return ['token' => null, 'source' => null];
+    }
+
+    private function requestHasCookie(Request $request, string $cookieName): bool
+    {
+        $cookie = $request->cookie($cookieName);
+
+        return is_string($cookie) && trim($cookie) !== '';
     }
 }
