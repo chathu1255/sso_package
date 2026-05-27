@@ -62,6 +62,10 @@ class ValidateSsoToken
             return response()->json(['message' => $e->getMessage()], 500);
         }
 
+        if ($request->hasSession()) {
+            $request->session()->put('usjnet_sso.access_token', trim((string) $token));
+        }
+
         return $next($request);
     }
 }

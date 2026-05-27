@@ -69,6 +69,10 @@ class EnsureSsoWebAuthenticated
             return response($e->getMessage(), 500);
         }
 
+        if ($request->hasSession()) {
+            $request->session()->put('usjnet_sso.access_token', trim($token));
+        }
+
         return $next($request);
     }
 }
