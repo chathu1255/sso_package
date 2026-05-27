@@ -489,10 +489,10 @@ class SsoAuthApiController extends Controller
     {
         $candidates = [
             'bearer' => $request->bearerToken(),
+            'session' => $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
             'access_cookie' => $this->decodeTokenCandidate($request->cookie((string) config('usjnet-sso.access_token_cookie', 'sso_access_token'))),
             'legacy_access_cookie' => $this->decodeTokenCandidate($request->cookie('accessToken')),
             'request_input' => $request->input('access_token'),
-            'session' => $request->hasSession() ? $request->session()->get('usjnet_sso.access_token') : null,
         ];
 
         foreach ($candidates as $source => $candidate) {
